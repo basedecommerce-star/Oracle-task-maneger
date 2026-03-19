@@ -60,8 +60,8 @@ function createMockHtmlParser(outputs = [mockParsedOutput]) {
   return { parse: jest.fn().mockResolvedValue(outputs) } as any;
 }
 
-function createMockVisualParser(outputs: any[] = []) {
-  return { parse: jest.fn().mockResolvedValue(outputs) } as any;
+function createMockVisualParser(outputs: any[] = [], enabled = false) {
+  return { parse: jest.fn().mockResolvedValue(enabled ? { status: 'completed', outputs } : { status: 'disabled', outputs: [] }), isEnabled: jest.fn().mockReturnValue(enabled) } as any;
 }
 
 function createMockReconciler(diffs: any[] = []) {
