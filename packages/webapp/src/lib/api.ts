@@ -1,145 +1,227 @@
 import { getTelegramInitData } from "./telegram";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
-let authToken: string | null = null;
+let accessToken: string | null = null;
 
-export function setAuthToken(token: string) {
-  authToken = token;
+export function setAccessToken(token: string) {
+  accessToken = token;
 }
 
-export function getAuthToken(): string | null {
-  return authToken;
+export function getAccessToken(): string | null {
+  return accessToken;
 }
 
 async function request<T>(
-  endpoint: string,
-  options: RequestInit = {}
+  path: string,
+  options: RequestInit = {},
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
-  if (authToken) {
-    headers["Authorization"] = `Bearer ${authToken}`;
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const initData = getTelegramInitData();
-  if (initData) {
-    headers["X-Telegram-Init-Data"] = initData;
-  }
-
-  const response = await fetch(url, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new ApiError(
-      response.status,
-      error.message || `Request failed with status ${response.status}`
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+
+  const text = await res.text();
+  return text ? JSON.parse(text) : ({} as T);
+}
+
+// ── Auth ──
+export const auth = {
+  /** Authenticate with Telegram initData, returns accessToken + user */
+  loginWithTelegram: (initData: string) =>
+    request<{ accessToken: string; user: import("../types").User }>(
+      "/auth/telegram",
+      {
+        method: "POST",
+        body: JSON.stringify({ initData }),
+      },
+    ),
+};
+
+// ── Categories ──
+export const categories = {
+  getAll: () => request<import("../types").Category[]>("/categories"),
+};
+
+// ── Topics ──
+export const topics = {
+  getAll: () => request<import("../types").Topic[]>("/topics"),
+};
+
+// ── Questions ──
+export const questions = {
+  /** List published questions with filters */
+  list: (params?: {
+    categoryId?: string;
+    topicId?: string;
+    ticketNumber?: number;
+    lang?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.categoryId) query.set("categoryId", params.categoryId);
+    if (params?.topicId) query.set("topicId", params.topicId);
+    if (params?.ticketNumber)
+      query.set("ticketNumber", String(params.ticketNumber));
+    if (params?.lang) query.set("lang", params.lang);
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    const qs = query.toString();
+    return request<import("../types").Question[]>(
+      `/questions${qs ? `?${qs}` : ""}`,
     );
-  }
+  },
 
-  return response.json();
-}
-
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-export const api = {
-  get: <T>(endpoint: string) => request<T>(endpoint),
-
-  post: <T>(endpoint: string, body?: unknown) =>
-    request<T>(endpoint, {
+  /** Report a question issue */
+  report: (questionId: string, complaintType: string, comment?: string) =>
+    request<void>(`/questions/${questionId}/report`, {
       method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
+      body: JSON.stringify({ complaintType, comment }),
+    }),
+};
+
+// ── Training ──
+export const training = {
+  /** Start a new training session */
+  start: (params: {
+    categoryCode?: string;
+    topicId?: string;
+    ticketNumber?: number;
+    questionCount?: number;
+  }) =>
+    request<import("../types").TrainingSession>("/training/start", {
+      method: "POST",
+      body: JSON.stringify(params),
     }),
 
-  put: <T>(endpoint: string, body?: unknown) =>
-    request<T>(endpoint, {
-      method: "PUT",
-      body: body ? JSON.stringify(body) : undefined,
+  /** Submit an answer in training mode – server returns correctness */
+  answer: (
+    sessionId: string,
+    sessionQuestionId: string,
+    answerIds: string[],
+    timeSpentMs?: number,
+  ) =>
+    request<import("../types").TrainingAnswerResponse>(
+      `/training/${sessionId}/answer`,
+      {
+        method: "POST",
+        body: JSON.stringify({ sessionQuestionId, answerIds, timeSpentMs }),
+      },
+    ),
+};
+
+// ── Exams ──
+export const exams = {
+  /** Start an exam session – server enforces time */
+  start: (categoryCode: string) =>
+    request<import("../types").ExamSession>("/exams/start", {
+      method: "POST",
+      body: JSON.stringify({ categoryCode }),
     }),
 
-  delete: <T>(endpoint: string) =>
-    request<T>(endpoint, { method: "DELETE" }),
+  /** Submit an answer during exam – no feedback returned */
+  answer: (
+    examId: string,
+    sessionQuestionId: string,
+    answerIds: string[],
+    timeSpentMs?: number,
+  ) =>
+    request<import("../types").ExamAnswerResponse>(`/exams/${examId}/answer`, {
+      method: "POST",
+      body: JSON.stringify({ sessionQuestionId, answerIds, timeSpentMs }),
+    }),
 
-  auth: {
-    login: () => api.post<{ token: string; user: import("@/types").User }>("/auth/telegram"),
-  },
+  /** Finish exam – returns results */
+  finish: (examId: string) =>
+    request<import("../types").ExamResult>(`/exams/${examId}/finish`, {
+      method: "POST",
+    }),
+};
 
-  questions: {
-    getByTicket: (ticketNumber: number) =>
-      api.get<import("@/types").Question[]>(`/questions/ticket/${ticketNumber}`),
-    getByTopic: (topicId: string) =>
-      api.get<import("@/types").Question[]>(`/questions/topic/${topicId}`),
-    getRandom: (category: string, count?: number) =>
-      api.get<import("@/types").Question[]>(
-        `/questions/random?category=${category}&count=${count || 20}`
-      ),
-    report: (questionId: string, reason: string) =>
-      api.post(`/questions/${questionId}/report`, { reason }),
-  },
-
-  tickets: {
-    list: (category: string) =>
-      api.get<import("@/types").Ticket[]>(`/tickets?category=${category}`),
-  },
-
-  topics: {
-    list: () => api.get<import("@/types").Topic[]>("/topics"),
-  },
-
-  exam: {
-    start: (category: string) =>
-      api.post<import("@/types").ExamSession>("/exam/start", { category }),
-    submit: (examId: string, answers: { questionId: string; selectedOptionId: string }[]) =>
-      api.post<import("@/types").ExamSession>(`/exam/${examId}/submit`, { answers }),
-  },
-
-  training: {
-    answer: (questionId: string, selectedOptionId: string) =>
-      api.post<{ isCorrect: boolean; correctOptionId: string }>(
-        "/training/answer",
-        { questionId, selectedOptionId }
-      ),
-  },
-
-  mistakes: {
-    list: () => api.get<import("@/types").MistakeEntry[]>("/mistakes"),
-    clear: () => api.delete("/mistakes"),
-  },
-
-  stats: {
-    get: () => api.get<import("@/types").UserStats>("/stats"),
-  },
-
-  rules: {
-    search: (query: string) =>
-      api.get<import("@/types").RuleArticle[]>(`/rules/search?q=${encodeURIComponent(query)}`),
-    list: () => api.get<import("@/types").RuleArticle[]>("/rules"),
-  },
-
-  signs: {
-    list: (category?: string) =>
-      api.get<import("@/types").RoadSign[]>(
-        `/signs${category ? `?category=${category}` : ""}`
-      ),
-  },
-
-  user: {
-    updateSettings: (settings: { language?: string; category?: string }) =>
-      api.put<import("@/types").User>("/user/settings", settings),
+// ── Tickets ──
+export const tickets = {
+  list: (categoryCode?: string) => {
+    const params = categoryCode ? `?categoryCode=${categoryCode}` : "";
+    return request<import("../types").Ticket[]>(`/tickets${params}`);
   },
 };
+
+// ── Stats ──
+export const stats = {
+  getOverview: () =>
+    request<import("../types").UserStats>("/stats/overview"),
+};
+
+// ── Mistakes ──
+export const mistakes = {
+  list: () => request<import("../types").MistakeEntry[]>("/mistakes"),
+  clear: () => request<void>("/mistakes", { method: "DELETE" }),
+};
+
+// ── Rules ──
+export const rules = {
+  search: (query: string, lang?: string) => {
+    const params = new URLSearchParams({ q: query });
+    if (lang) params.set("lang", lang);
+    return request<import("../types").RuleArticle[]>(
+      `/rules/search?${params}`,
+    );
+  },
+  list: (lang?: string) => {
+    const params = lang ? `?lang=${lang}` : "";
+    return request<import("../types").RuleArticle[]>(`/rules${params}`);
+  },
+};
+
+// ── Signs ──
+export const signs = {
+  getAll: (type?: string) => {
+    const params = type ? `?type=${type}` : "";
+    return request<import("../types").RoadSign[]>(`/signs${params}`);
+  },
+};
+
+// ── User settings ──
+export const user = {
+  getMe: () => request<import("../types").User>("/me"),
+  updateSettings: (settings: {
+    languageCode?: string;
+    categoryId?: string;
+  }) =>
+    request<import("../types").User>("/me/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
+};
+
+export const api = {
+  auth,
+  categories,
+  topics,
+  questions,
+  training,
+  exams,
+  tickets,
+  stats,
+  mistakes,
+  rules,
+  signs,
+  user,
+};
+
+export default api;

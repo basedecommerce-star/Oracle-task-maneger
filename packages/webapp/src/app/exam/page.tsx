@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Header } from "@/components/layout/Header";
 import { QuestionCard } from "@/components/ui/QuestionCard";
+import type { DisplayQuestion } from "@/components/ui/QuestionCard";
 import { Button } from "@/components/ui/Button";
 import { Timer } from "@/components/ui/Timer";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -10,24 +11,27 @@ import { Card } from "@/components/ui/Card";
 import { useAppStore } from "@/store/app.store";
 import { api } from "@/lib/api";
 import { hapticFeedback } from "@/lib/telegram";
-import type { ExamSession, ExamAnswer } from "@/types";
+import type { ExamSession, ExamResult } from "@/types";
 
-const EXAM_TIME_SECONDS = 20 * 60; // 20 minutes
+interface ExamAnswerRecord {
+  sessionQuestionId: string;
+  selectedAnswerId: string;
+}
 
 export default function ExamPage() {
-  const { category } = useAppStore();
+  const { categoryCode } = useAppStore();
   const [exam, setExam] = useState<ExamSession | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<ExamAnswer[]>([]);
+  const [answers, setAnswers] = useState<ExamAnswerRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<ExamSession | null>(null);
+  const [result, setResult] = useState<ExamResult | null>(null);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
 
   const startExam = useCallback(async () => {
     setIsLoading(true);
     try {
-      const session = await api.exam.start(category);
+      const session = await api.exams.start(categoryCode);
       setExam(session);
       setCurrentIndex(0);
       setAnswers([]);
@@ -38,22 +42,27 @@ export default function ExamPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [category]);
+  }, [categoryCode]);
 
   const handleAnswer = useCallback(
-    (optionId: string) => {
+    async (answerId: string) => {
       if (!exam) return;
       const question = exam.questions[currentIndex];
-      const isCorrect = optionId === question.correctOptionId;
 
       setAnswers((prev) => [
         ...prev,
-        { questionId: question.id, selectedOptionId: optionId, isCorrect },
+        { sessionQuestionId: question.sessionQuestionId, selectedAnswerId: answerId },
       ]);
 
       hapticFeedback("selection");
+
+      try {
+        await api.exams.answer(exam.sessionId, question.sessionQuestionId, [answerId]);
+      } catch {
+        // Continue even if API call fails
+      }
     },
-    [exam, currentIndex]
+    [exam, currentIndex],
   );
 
   const nextQuestion = useCallback(() => {
@@ -69,30 +78,26 @@ export default function ExamPage() {
     }
   }, [currentIndex]);
 
-  const submitExam = useCallback(async () => {
+  const finishExam = useCallback(async () => {
     if (!exam) return;
     setIsSubmitting(true);
     setIsTimerRunning(false);
 
     try {
-      const submittedAnswers = answers.map((a) => ({
-        questionId: a.questionId,
-        selectedOptionId: a.selectedOptionId,
-      }));
-      const res = await api.exam.submit(exam.id, submittedAnswers);
+      const res = await api.exams.finish(exam.sessionId);
       setResult(res);
-      hapticFeedback("notification", res.passed ? "success" : "error");
+      hapticFeedback("notification", res.isPassed ? "success" : "error");
     } catch {
-      console.error("Failed to submit exam");
+      console.error("Failed to finish exam");
     } finally {
       setIsSubmitting(false);
     }
-  }, [exam, answers]);
+  }, [exam]);
 
   const handleTimeUp = useCallback(() => {
     setIsTimerRunning(false);
-    submitExam();
-  }, [submitExam]);
+    finishExam();
+  }, [finishExam]);
 
   // Not started
   if (!exam && !result) {
@@ -106,20 +111,20 @@ export default function ExamPage() {
               Пробный экзамен
             </h2>
             <p className="text-tg-hint text-sm mb-2">
-              20 вопросов за 20 минут
+              Категория: {categoryCode}
             </p>
             <p className="text-tg-hint text-xs">
-              Категория: {category} • Без подсказок • Максимум 2 ошибки
+              Без подсказок • Время ограничено сервером
             </p>
           </Card>
 
           <Card>
             <h3 className="font-semibold text-tg-text mb-2 text-sm">Правила экзамена:</h3>
             <ul className="text-tg-hint text-sm space-y-1.5">
-              <li>• 20 вопросов из билетов категории {category}</li>
-              <li>• Время на экзамен — 20 минут</li>
-              <li>• Допустимо не более 2 ошибок</li>
+              <li>• Вопросы из билетов категории {categoryCode}</li>
+              <li>• Время на экзамен ограничено</li>
               <li>• Подсказки и пояснения недоступны</li>
+              <li>• Результат определяет сервер</li>
             </ul>
           </Card>
 
@@ -133,25 +138,22 @@ export default function ExamPage() {
 
   // Result screen
   if (result) {
-    const correct = answers.filter((a) => a.isCorrect).length;
-    const passed = result.passed;
-
     return (
       <>
         <Header title="Результат экзамена" />
         <main className="px-4 pt-6 space-y-4">
           <Card className="text-center">
-            <div className="text-5xl mb-3">{passed ? "✅" : "❌"}</div>
+            <div className="text-5xl mb-3">{result.isPassed ? "✅" : "❌"}</div>
             <h2 className="text-xl font-bold text-tg-text mb-2">
-              {passed ? "Экзамен сдан!" : "Экзамен не сдан"}
+              {result.isPassed ? "Экзамен сдан!" : "Экзамен не сдан"}
             </h2>
             <p className="text-tg-hint text-sm mb-4">
-              Правильных ответов: {correct} из {answers.length}
+              Правильных ответов: {result.correctAnswers} из {result.totalQuestions}
             </p>
             <ProgressBar
-              current={correct}
-              total={answers.length}
-              colorClass={passed ? "bg-green-500" : "bg-red-500"}
+              current={result.correctAnswers}
+              total={result.totalQuestions}
+              colorClass={result.isPassed ? "bg-green-500" : "bg-red-500"}
             />
           </Card>
 
@@ -178,9 +180,16 @@ export default function ExamPage() {
   // Exam in progress
   const currentQuestion = exam!.questions[currentIndex];
   const currentAnswer = answers.find(
-    (a) => a.questionId === currentQuestion.id
+    (a) => a.sessionQuestionId === currentQuestion.sessionQuestionId,
   );
   const allAnswered = answers.length === exam!.questions.length;
+
+  const displayQuestion: DisplayQuestion = {
+    id: currentQuestion.sessionQuestionId,
+    questionText: currentQuestion.questionText,
+    imageAssetKey: currentQuestion.imageAssetKey,
+    answers: currentQuestion.answers,
+  };
 
   return (
     <>
@@ -191,7 +200,7 @@ export default function ExamPage() {
             {currentIndex + 1} / {exam!.questions.length}
           </span>
           <Timer
-            initialSeconds={EXAM_TIME_SECONDS}
+            initialSeconds={exam!.durationLimit}
             onComplete={handleTimeUp}
             isRunning={isTimerRunning}
             className="text-base"
@@ -201,17 +210,19 @@ export default function ExamPage() {
         {/* Question indicator dots */}
         <div className="flex gap-1 flex-wrap">
           {exam!.questions.map((q, i) => {
-            const answer = answers.find((a) => a.questionId === q.id);
+            const answer = answers.find(
+              (a) => a.sessionQuestionId === q.sessionQuestionId,
+            );
             let dotColor = "bg-tg-secondary-bg";
             if (answer) {
-              dotColor = answer.isCorrect ? "bg-green-500" : "bg-red-500";
+              dotColor = "bg-tg-button/60";
             }
             if (i === currentIndex) {
               dotColor += " ring-2 ring-tg-button";
             }
             return (
               <button
-                key={q.id}
+                key={q.sessionQuestionId}
                 onClick={() => setCurrentIndex(i)}
                 className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center ${dotColor} ${
                   answer ? "text-white" : "text-tg-hint"
@@ -225,11 +236,11 @@ export default function ExamPage() {
 
         <Card>
           <QuestionCard
-            question={currentQuestion}
+            question={displayQuestion}
             onAnswer={handleAnswer}
             showExplanation={false}
             disabled={!!currentAnswer}
-            selectedOptionId={currentAnswer?.selectedOptionId}
+            selectedAnswerId={currentAnswer?.selectedAnswerId}
           />
         </Card>
 
@@ -244,7 +255,7 @@ export default function ExamPage() {
           </Button>
           {allAnswered ? (
             <Button
-              onClick={submitExam}
+              onClick={finishExam}
               loading={isSubmitting}
               className="flex-[3]"
             >

@@ -5,22 +5,24 @@ interface AppState {
   user: User | null;
   isLoading: boolean;
   language: Language;
-  category: VehicleCategory;
+  categoryCode: VehicleCategory;
+  categoryId: string | null;
 
   setUser: (user: User | null) => void;
   setLoading: (loading: boolean) => void;
   setLanguage: (language: Language) => void;
-  setCategory: (category: VehicleCategory) => void;
+  setCategory: (code: VehicleCategory, id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   user: null,
   isLoading: true,
   language: "ru",
-  category: "B",
+  categoryCode: "B",
+  categoryId: null,
 
   setUser: (user) => set({ user }),
   setLoading: (isLoading) => set({ isLoading }),
   setLanguage: (language) => set({ language }),
-  setCategory: (category) => set({ category }),
+  setCategory: (categoryCode, categoryId) => set({ categoryCode, categoryId }),
 }));

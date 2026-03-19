@@ -5,9 +5,9 @@ import { Header } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
-import type { RoadSign, RoadSignCategory } from "@/types";
+import type { RoadSign } from "@/types";
 
-const signCategories: { value: RoadSignCategory | "all"; label: string; icon: string }[] = [
+const signCategories: { value: string; label: string; icon: string }[] = [
   { value: "all", label: "Все", icon: "🚗" },
   { value: "warning", label: "Предупреждающие", icon: "⚠️" },
   { value: "priority", label: "Приоритета", icon: "🔺" },
@@ -19,7 +19,7 @@ const signCategories: { value: RoadSignCategory | "all"; label: string; icon: st
 ];
 
 export default function SignsPage() {
-  const [selectedCategory, setSelectedCategory] = useState<RoadSignCategory | "all">("all");
+  const [selectedType, setSelectedType] = useState<string>("all");
   const [signs, setSigns] = useState<RoadSign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -28,8 +28,8 @@ export default function SignsPage() {
     async function loadSigns() {
       setIsLoading(true);
       try {
-        const category = selectedCategory === "all" ? undefined : selectedCategory;
-        const data = await api.signs.list(category);
+        const type = selectedType === "all" ? undefined : selectedType;
+        const data = await api.signs.getAll(type);
         setSigns(data);
       } catch {
         console.error("Failed to load signs");
@@ -38,7 +38,7 @@ export default function SignsPage() {
       }
     }
     loadSigns();
-  }, [selectedCategory]);
+  }, [selectedType]);
 
   return (
     <>
@@ -49,9 +49,9 @@ export default function SignsPage() {
           {signCategories.map((cat) => (
             <Button
               key={cat.value}
-              variant={selectedCategory === cat.value ? "primary" : "secondary"}
+              variant={selectedType === cat.value ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setSelectedCategory(cat.value)}
+              onClick={() => setSelectedType(cat.value)}
               className="whitespace-nowrap shrink-0"
             >
               {cat.icon} {cat.label}
@@ -82,16 +82,20 @@ export default function SignsPage() {
               >
                 <div className="flex flex-col items-center text-center">
                   <div className="w-16 h-16 rounded-lg bg-tg-secondary-bg flex items-center justify-center mb-2 overflow-hidden">
-                    <img
-                      src={sign.imageUrl}
-                      alt={sign.name}
-                      className="w-full h-full object-contain"
-                    />
+                    {sign.imageKey ? (
+                      <img
+                        src={sign.imageKey}
+                        alt={sign.name}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <span className="text-2xl">🚸</span>
+                    )}
                   </div>
                   <h4 className="text-xs font-medium text-tg-text leading-tight">
                     {sign.name}
                   </h4>
-                  {expandedId === sign.id && (
+                  {expandedId === sign.id && sign.description && (
                     <p className="text-xs text-tg-hint mt-2 leading-relaxed">
                       {sign.description}
                     </p>

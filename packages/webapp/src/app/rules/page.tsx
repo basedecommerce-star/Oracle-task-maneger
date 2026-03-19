@@ -84,10 +84,10 @@ export default function RulesPage() {
             {articles.map((article) => (
               <Card key={article.id}>
                 <div className="text-xs text-tg-hint mb-1">
-                  Глава {article.chapterNumber} • {article.chapterTitle}
+                  Глава {article.chapterCode}
                 </div>
                 <h3 className="font-semibold text-tg-text text-sm mb-2">
-                  Статья {article.articleNumber}. {article.title}
+                  Статья {article.articleCode}. {article.title}
                 </h3>
                 <p className="text-tg-text text-sm leading-relaxed">
                   {article.content}

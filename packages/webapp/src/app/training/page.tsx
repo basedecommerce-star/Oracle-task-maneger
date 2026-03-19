@@ -3,43 +3,58 @@
 import { useState, useCallback } from "react";
 import { Header } from "@/components/layout/Header";
 import { QuestionCard } from "@/components/ui/QuestionCard";
+import type { DisplayQuestion } from "@/components/ui/QuestionCard";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Card } from "@/components/ui/Card";
 import { useAppStore } from "@/store/app.store";
 import { api } from "@/lib/api";
 import { hapticFeedback } from "@/lib/telegram";
-import type { Question, VehicleCategory } from "@/types";
+import type { TrainingSession, VehicleCategory } from "@/types";
 
-const categories: { value: VehicleCategory; label: string }[] = [
+const categoryOptions: { value: VehicleCategory; label: string }[] = [
   { value: "A", label: "A — Мотоциклы" },
   { value: "B", label: "B — Легковые" },
   { value: "C", label: "C — Грузовые" },
   { value: "D", label: "D — Автобусы" },
-  { value: "E", label: "E — Прицепы" },
+  { value: "BE", label: "BE — Прицепы (B)" },
+  { value: "CE", label: "CE — Прицепы (C)" },
+  { value: "DE", label: "DE — Прицепы (D)" },
+  { value: "AM", label: "AM — Мопеды" },
+  { value: "A1", label: "A1 — Лёгкие мотоциклы" },
+  { value: "A2", label: "A2 — Средние мотоциклы" },
+  { value: "B1", label: "B1 — Квадрициклы" },
+  { value: "F", label: "F — Трамваи / троллейбусы" },
 ];
 
 export default function TrainingPage() {
-  const { category } = useAppStore();
-  const [selectedCategory, setSelectedCategory] = useState<VehicleCategory>(category);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const { categoryCode } = useAppStore();
+  const [selectedCategory, setSelectedCategory] = useState<VehicleCategory>(categoryCode);
+  const [session, setSession] = useState<TrainingSession | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [isStarted, setIsStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [answered, setAnswered] = useState(false);
+  const [correctAnswerIds, setCorrectAnswerIds] = useState<string[]>([]);
+  const [explanationText, setExplanationText] = useState<string | null>(null);
 
   const startTraining = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await api.questions.getRandom(selectedCategory, 20);
-      setQuestions(data);
+      const data = await api.training.start({
+        categoryCode: selectedCategory,
+        questionCount: 20,
+      });
+      setSession(data);
       setCurrentIndex(0);
       setCorrectCount(0);
       setAnsweredCount(0);
       setIsStarted(true);
       setAnswered(false);
+      setCorrectAnswerIds([]);
+      setExplanationText(null);
     } catch (error) {
       console.error("Failed to load questions:", error instanceof Error ? error.message : error);
     } finally {
@@ -48,48 +63,58 @@ export default function TrainingPage() {
   }, [selectedCategory]);
 
   const handleAnswer = useCallback(
-    async (optionId: string) => {
-      if (answered) return;
+    async (answerId: string) => {
+      if (answered || !session) return;
       setAnswered(true);
 
-      const question = questions[currentIndex];
-      const isCorrect = optionId === question.correctOptionId;
-
-      if (isCorrect) {
-        setCorrectCount((prev) => prev + 1);
-        hapticFeedback("notification", "success");
-      } else {
-        hapticFeedback("notification", "error");
-      }
-      setAnsweredCount((prev) => prev + 1);
+      const question = session.questions[currentIndex];
 
       try {
-        await api.training.answer(question.id, optionId);
+        const response = await api.training.answer(
+          session.sessionId,
+          question.sessionQuestionId,
+          [answerId],
+        );
+
+        setCorrectAnswerIds(response.correctAnswerIds);
+        setExplanationText(response.explanationText);
+
+        if (response.isCorrect) {
+          setCorrectCount((prev) => prev + 1);
+          hapticFeedback("notification", "success");
+        } else {
+          hapticFeedback("notification", "error");
+        }
+        setAnsweredCount((prev) => prev + 1);
       } catch {
-        // Continue even if API fails
+        // If API fails, still mark as answered but without feedback
+        setAnsweredCount((prev) => prev + 1);
       }
     },
-    [answered, questions, currentIndex]
+    [answered, session, currentIndex],
   );
 
   const nextQuestion = useCallback(() => {
-    if (currentIndex < questions.length - 1) {
+    if (!session) return;
+    if (currentIndex < session.questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
       setAnswered(false);
+      setCorrectAnswerIds([]);
+      setExplanationText(null);
       hapticFeedback("selection");
     }
-  }, [currentIndex, questions.length]);
+  }, [currentIndex, session]);
 
   const handleReport = useCallback(async (questionId: string) => {
     try {
-      await api.questions.report(questionId, "Ошибка в вопросе");
+      await api.questions.report(questionId, "WRONG_TEXT");
       hapticFeedback("notification", "success");
     } catch {
       // Ignore
     }
   }, []);
 
-  if (!isStarted) {
+  if (!isStarted || !session) {
     return (
       <>
         <Header title="Обучение" />
@@ -97,7 +122,7 @@ export default function TrainingPage() {
           <Card>
             <h2 className="font-semibold text-tg-text mb-3">Выберите категорию</h2>
             <div className="space-y-2">
-              {categories.map((cat) => (
+              {categoryOptions.map((cat) => (
                 <button
                   key={cat.value}
                   onClick={() => setSelectedCategory(cat.value)}
@@ -123,8 +148,8 @@ export default function TrainingPage() {
     );
   }
 
-  const currentQuestion = questions[currentIndex];
-  const isComplete = currentIndex === questions.length - 1 && answered;
+  const currentQuestion = session.questions[currentIndex];
+  const isComplete = currentIndex === session.questions.length - 1 && answered;
 
   if (isComplete) {
     return (
@@ -143,7 +168,7 @@ export default function TrainingPage() {
             </p>
             <ProgressBar current={correctCount} total={answeredCount} />
           </Card>
-          <Button fullWidth onClick={() => setIsStarted(false)}>
+          <Button fullWidth onClick={() => { setIsStarted(false); setSession(null); }}>
             Начать заново
           </Button>
         </main>
@@ -151,16 +176,25 @@ export default function TrainingPage() {
     );
   }
 
+  const displayQuestion: DisplayQuestion = {
+    id: currentQuestion.sessionQuestionId,
+    questionText: currentQuestion.questionText,
+    imageAssetKey: currentQuestion.imageAssetKey,
+    answers: currentQuestion.answers,
+  };
+
   return (
     <>
-      <Header title={`Вопрос ${currentIndex + 1} / ${questions.length}`} />
+      <Header title={`Вопрос ${currentIndex + 1} / ${session.questions.length}`} />
       <main className="px-4 pt-4 space-y-4">
-        <ProgressBar current={currentIndex + 1} total={questions.length} showLabel={false} />
+        <ProgressBar current={currentIndex + 1} total={session.questions.length} showLabel={false} />
 
         <Card>
           <QuestionCard
-            question={currentQuestion}
+            question={displayQuestion}
             onAnswer={handleAnswer}
+            correctAnswerIds={correctAnswerIds.length > 0 ? correctAnswerIds : undefined}
+            explanationText={explanationText}
             showExplanation
             onReport={handleReport}
           />

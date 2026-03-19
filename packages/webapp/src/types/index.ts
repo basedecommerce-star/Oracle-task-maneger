@@ -1,146 +1,201 @@
+// ── Category types matching backend/seed ──
+export type VehicleCategory =
+  | 'A' | 'B' | 'AM' | 'A1' | 'A2' | 'B1'
+  | 'BE' | 'C' | 'CE' | 'D' | 'DE' | 'F';
+
+export type Language = 'ro' | 'ru';
+
 export interface User {
   id: string;
   telegramId: number;
-  firstName: string;
-  lastName?: string;
-  username?: string;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
   languageCode: string;
-  category: VehicleCategory;
+  preferredLang: string;
+  categoryId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type VehicleCategory = "A" | "B" | "C" | "D" | "E";
-
-export type Language = "ro" | "ru";
-
-export interface Question {
+export interface Category {
   id: string;
-  ticketNumber: number;
-  questionNumber: number;
-  topicId: string;
-  category: VehicleCategory[];
-  imageUrl?: string;
-  text: string;
-  options: AnswerOption[];
-  explanation?: string;
-  correctOptionId: string;
+  code: VehicleCategory;
+  nameRu: string;
+  nameRo: string;
+  sortOrder: number;
 }
 
-export interface AnswerOption {
+export interface ExamConfig {
   id: string;
-  text: string;
-}
-
-export interface Ticket {
-  id: string;
-  number: number;
-  category: VehicleCategory;
-  questionCount: number;
-  completedCount?: number;
-  correctCount?: number;
+  categoryId: string;
+  totalQuestions: number;
+  durationSeconds: number;
+  passThresholdCorrect: number;
+  maxErrors: number;
+  verified: boolean;
 }
 
 export interface Topic {
   id: string;
-  name: string;
-  questionCount: number;
-  completedCount?: number;
-  correctCount?: number;
+  code: string;
+  nameRu: string;
+  nameRo: string;
+  sortOrder: number;
+  questionCount?: number;
 }
 
-export interface ExamSession {
+// Questions - NO correctOptionId exposed to prevent client-side cheating
+export interface Answer {
   id: string;
-  userId: string;
-  category: VehicleCategory;
-  questions: Question[];
-  answers: ExamAnswer[];
-  startedAt: string;
-  timeLimit: number;
-  status: "in_progress" | "completed" | "expired";
-  score?: number;
-  passed?: boolean;
+  answerOrder: number;
+  answerText: string;
+  // isCorrect is ONLY returned in training mode after answering
 }
 
-export interface ExamAnswer {
-  questionId: string;
-  selectedOptionId: string;
-  isCorrect: boolean;
+export interface Question {
+  id: string;
+  questionText: string;
+  imageAssetKey: string | null;
+  questionType: 'SINGLE' | 'MULTIPLE';
+  ticketNumber: number | null;
+  topicId: string | null;
+  categoryId: string | null;
+  language: string;
+  answers: Answer[];
+  // Only shown in training mode after answering
+  explanationText?: string;
+  ruleReference?: string;
 }
 
+// Training session types
 export interface TrainingSession {
-  questionId: string;
-  selectedOptionId: string;
+  sessionId: string;
+  totalQuestions: number;
+  questions: TrainingQuestion[];
+}
+
+export interface TrainingQuestion {
+  sessionQuestionId: string;
+  questionOrder: number;
+  questionText: string;
+  imageAssetKey: string | null;
+  questionType: 'SINGLE' | 'MULTIPLE';
+  answers: Answer[];
+}
+
+export interface TrainingAnswerResponse {
   isCorrect: boolean;
+  correctAnswerIds: string[];
+  explanationText: string | null;
+  ruleReference: string | null;
+}
+
+// Exam session types
+export interface ExamSession {
+  sessionId: string;
+  totalQuestions: number;
+  durationLimit: number; // seconds from server
+  questions: ExamQuestion[];
+}
+
+export interface ExamQuestion {
+  sessionQuestionId: string;
+  questionOrder: number;
+  questionText: string;
+  imageAssetKey: string | null;
+  questionType: 'SINGLE' | 'MULTIPLE';
+  answers: Answer[]; // NO isCorrect field
+}
+
+export interface ExamAnswerResponse {
+  accepted: boolean;
+}
+
+export interface ExamResult {
+  sessionId: string;
+  status: string;
+  isPassed: boolean;
+  correctAnswers: number;
+  wrongAnswers: number;
+  totalQuestions: number;
+  passThreshold: number;
+  results: ExamResultDetail[];
+}
+
+export interface ExamResultDetail {
+  questionOrder: number;
+  questionText: string;
+  isCorrect: boolean;
+  selectedAnswerIds: string[];
+  correctAnswerIds: string[];
+  explanationText: string | null;
+}
+
+export interface Ticket {
+  ticketNumber: number;
+  category: string;
+  questionCount: number;
+}
+
+export interface MistakeEntry {
+  questionId: string;
+  questionText: string;
+  selectedAnswerIds: string[];
+  correctAnswerIds: string[];
   answeredAt: string;
 }
 
 export interface UserStats {
   totalAnswered: number;
-  correctAnswers: number;
-  incorrectAnswers: number;
-  accuracy: number;
-  examsPassed: number;
-  examsFailed: number;
-  totalExams: number;
-  streakDays: number;
-  topicProgress: TopicProgress[];
+  totalCorrect: number;
+  totalWrong: number;
+  correctRate: number;
+  byTopic: TopicStat[];
+  recentSessions: SessionSummary[];
 }
 
-export interface TopicProgress {
+export interface TopicStat {
   topicId: string;
   topicName: string;
+  answered: number;
+  correct: number;
+}
+
+export interface SessionSummary {
+  sessionId: string;
+  sessionType: 'TRAINING' | 'EXAM';
   totalQuestions: number;
-  answeredCorrectly: number;
-  progress: number;
+  correctAnswers: number;
+  isPassed: boolean | null;
+  createdAt: string;
 }
-
-export interface MistakeEntry {
-  question: Question;
-  selectedOptionId: string;
-  answeredAt: string;
-}
-
-export interface RoadSign {
-  id: string;
-  name: string;
-  description: string;
-  imageUrl: string;
-  category: RoadSignCategory;
-}
-
-export type RoadSignCategory =
-  | "warning"
-  | "priority"
-  | "prohibition"
-  | "mandatory"
-  | "informational"
-  | "service"
-  | "additional";
 
 export interface RuleArticle {
   id: string;
-  chapterNumber: number;
-  chapterTitle: string;
-  articleNumber: number;
+  chapterCode: string;
+  articleCode: string;
   title: string;
   content: string;
 }
 
-export interface ApiResponse<T> {
-  data: T;
-  success: boolean;
-  error?: string;
+export interface RoadSign {
+  id: string;
+  signCode: string;
+  signType: string;
+  imageKey: string | null;
+  name: string;
+  description: string | null;
 }
 
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+export type ReportReason =
+  | 'WRONG_ANSWER'
+  | 'WRONG_TEXT'
+  | 'WRONG_IMAGE'
+  | 'OUTDATED'
+  | 'OTHER';
 
+// ── UI-only types ──
 export interface MenuItem {
   title: string;
   icon: string;

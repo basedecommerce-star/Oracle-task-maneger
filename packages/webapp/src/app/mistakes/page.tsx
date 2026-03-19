@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/Header";
-import { QuestionCard } from "@/components/ui/QuestionCard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { api } from "@/lib/api";
@@ -76,11 +75,13 @@ export default function MistakesPage() {
         <Header title={`Ошибка ${currentIndex + 1} / ${mistakes.length}`} />
         <main className="px-4 pt-4 space-y-4">
           <Card>
-            <QuestionCard
-              question={mistake.question}
-              onAnswer={() => {}}
-              showExplanation
-            />
+            <div className="text-tg-text font-medium text-base leading-relaxed mb-3">
+              {mistake.questionText}
+            </div>
+            <div className="text-sm text-tg-hint">
+              <p>Ваш ответ: {mistake.selectedAnswerIds.length} выбрано</p>
+              <p>Правильных: {mistake.correctAnswerIds.length}</p>
+            </div>
           </Card>
 
           <div className="flex gap-3">

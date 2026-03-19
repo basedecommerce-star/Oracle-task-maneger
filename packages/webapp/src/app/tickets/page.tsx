@@ -10,14 +10,14 @@ import { api } from "@/lib/api";
 import type { Ticket } from "@/types";
 
 export default function TicketsPage() {
-  const { category } = useAppStore();
+  const { categoryCode } = useAppStore();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function loadTickets() {
       try {
-        const data = await api.tickets.list(category);
+        const data = await api.tickets.list(categoryCode);
         setTickets(data);
       } catch {
         console.error("Failed to load tickets");
@@ -26,14 +26,14 @@ export default function TicketsPage() {
       }
     }
     loadTickets();
-  }, [category]);
+  }, [categoryCode]);
 
   return (
     <>
       <Header title="Билеты" />
       <main className="px-4 pt-4 space-y-3">
         <p className="text-tg-hint text-sm">
-          Категория {category} • {tickets.length} билетов
+          Категория {categoryCode} • {tickets.length} билетов
         </p>
 
         {isLoading ? (
@@ -44,51 +44,33 @@ export default function TicketsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {tickets.map((ticket) => {
-              const completed = ticket.completedCount || 0;
-              const correct = ticket.correctCount || 0;
-              const isComplete = completed === ticket.questionCount;
-
-              return (
-                <Link
-                  key={ticket.id}
-                  href={`/training?ticket=${ticket.number}`}
-                >
-                  <Card hoverable className="flex items-center gap-4">
-                    <div
-                      className={`
-                        w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg
-                        ${isComplete
-                          ? correct === ticket.questionCount
-                            ? "bg-green-500/20 text-green-600"
-                            : "bg-yellow-500/20 text-yellow-600"
-                          : "bg-tg-secondary-bg text-tg-hint"
-                        }
-                      `}
-                    >
-                      {ticket.number}
+            {tickets.map((ticket) => (
+              <Link
+                key={ticket.ticketNumber}
+                href={`/training?ticket=${ticket.ticketNumber}`}
+              >
+                <Card hoverable className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg bg-tg-secondary-bg text-tg-hint">
+                    {ticket.ticketNumber}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-tg-text text-sm">
+                        Билет №{ticket.ticketNumber}
+                      </span>
+                      <span className="text-xs text-tg-hint">
+                        {ticket.questionCount} вопросов
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-tg-text text-sm">
-                          Билет №{ticket.number}
-                        </span>
-                        {isComplete && (
-                          <span className="text-xs text-tg-hint">
-                            {correct}/{ticket.questionCount}
-                          </span>
-                        )}
-                      </div>
-                      <ProgressBar
-                        current={completed}
-                        total={ticket.questionCount}
-                        showLabel={false}
-                      />
-                    </div>
-                  </Card>
-                </Link>
-              );
-            })}
+                    <ProgressBar
+                      current={0}
+                      total={ticket.questionCount}
+                      showLabel={false}
+                    />
+                  </div>
+                </Card>
+              </Link>
+            ))}
           </div>
         )}
       </main>
