@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  REVIEWER
+}
+
+enum SessionMode {
+  TRAINING
+  EXAM
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+  EXPIRED
+}
+
+enum VerificationStatus {
+  RAW
+  PARSED
+  NORMALIZED
+  CONFLICT
+  REVIEW_REQUIRED
+  VERIFIED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SourcePriority {
+  A
+  B
+  C
+}
+
+enum ModerationAction {
+  APPROVE
+  REJECT
+  NEEDS_FIX
+  PUBLISH
+  ARCHIVE
+}
+
+enum ReportType {
+  WRONG_ANSWER
+  WRONG_TEXT
+  WRONG_IMAGE
+  OUTDATED_QUESTION
+  OTHER
+}
+
+model User {
+  id               String            @id @default(cuid())
+  telegramId       String            @unique
+  username         String?
+  firstName        String?
+  lastName         String?
+  language         String?
+  preferredCategory String?
+  role             UserRole          @default(USER)
+  streakDays       Int               @default(0)
+  totalAnswers     Int               @default(0)
+  totalCorrect     Int               @default(0)
+  totalWrong       Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sessions         Session[]
+  reports          QuestionReport[]
+  moderationEvents ModerationEvent[] @relation("ModeratorEvents")
+}
+
+model SourceProvider {
+  id           String           @id @default(cuid())
+  name         String
+  code         String           @unique
+  priority     SourcePriority
+  baseUrl      String?
+  isOfficial   Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  snapshots    SourceSnapshot[]
+  questions    Question[]
+}
+
+model SourceSnapshot {
+  id               String          @id @default(cuid())
+  sourceProviderId String
+  sourceUrl        String
+  contentHash      String
+  htmlContent      String?
+  screenshotUrl    String?
+  capturedAt       DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  sourceProvider   SourceProvider  @relation(fields: [sourceProviderId], references: [id], onDelete: Cascade)
+  parserRuns       ParserRun[]
+  evidenceBundles  EvidenceBundle[]
+}
+
+model ParserRun {
+  id               String          @id @default(cuid())
+  sourceSnapshotId String
+  parserType       String
+  parserVersion    String
+  status           String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  sourceSnapshot   SourceSnapshot  @relation(fields: [sourceSnapshotId], references: [id], onDelete: Cascade)
+  outputs          ParserOutput[]
+}
+
+model ParserOutput {
+  id               String          @id @default(cuid())
+  parserRunId      String
+  questionText     String?
+  extractedAnswers Json?
+  correctAnswerRef String?
+  confidenceScore  Float           @default(0)
+  rawPayload       Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  parserRun        ParserRun       @relation(fields: [parserRunId], references: [id], onDelete: Cascade)
+}
+
+model ParserDiff {
+  id                 String   @id @default(cuid())
+  questionId         String?
+  primaryOutputId    String
+  secondaryOutputId  String
+  conflictDetected   Boolean  @default(false)
+  diffSummary        Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model EvidenceBundle {
+  id               String          @id @default(cuid())
+  sourceSnapshotId String
+  sourceUrl        String
+  parserOutputIds  Json
+  parserDiffId     String?
+  approvalEventId  String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  sourceSnapshot   SourceSnapshot  @relation(fields: [sourceSnapshotId], references: [id], onDelete: Cascade)
+  questions        Question[]
+}
+
+model Topic {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  category    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  questions   Question[]
+}
+
+model Question {
+  id                  String               @id @default(cuid())
+  externalId          String?
+  sourceProviderId    String
+  topicId             String?
+  category            String
+  ticketNumber        Int?
+  language            String
+  questionText        String
+  explanationText     String?
+  ruleReference       String?
+  imageUrl            String?
+  verificationStatus  VerificationStatus   @default(RAW)
+  sourcePriority      SourcePriority
+  correctAnswerConfidence Float           @default(0)
+  questionTextConfidence Float            @default(0)
+  answerOptionsConfidence Float           @default(0)
+  hasExplicitCorrectAnswer Boolean        @default(false)
+  reviewRequired      Boolean             @default(false)
+  isPublished         Boolean             @default(false)
+  evidenceBundleId    String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  sourceProvider      SourceProvider      @relation(fields: [sourceProviderId], references: [id], onDelete: Cascade)
+  topic               Topic?              @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  evidenceBundle      EvidenceBundle?     @relation(fields: [evidenceBundleId], references: [id], onDelete: SetNull)
+  answers             Answer[]
+  versions            QuestionVersion[]
+  reports             QuestionReport[]
+  sessionQuestions    SessionQuestion[]
+  sessionAnswers      SessionAnswer[]
+  moderationEvents    ModerationEvent[]   @relation("QuestionModerationEvents")
+}
+
+model QuestionVersion {
+  id              String    @id @default(cuid())
+  questionId      String
+  versionNumber   Int
+  questionText    String
+  explanationText String?
+  ruleReference   String?
+  imageUrl        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  question        Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, versionNumber])
+}
+
+model Answer {
+  id           String    @id @default(cuid())
+  questionId   String
+  orderIndex   Int
+  answerText   String
+  isCorrect    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  question     Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, orderIndex])
+}
+
+model ModerationEvent {
+  id          String            @id @default(cuid())
+  questionId  String?
+  moderatorId String
+  action      ModerationAction
+  comment     String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  question    Question?         @relation("QuestionModerationEvents", fields: [questionId], references: [id], onDelete: SetNull)
+  moderator   User              @relation("ModeratorEvents", fields: [moderatorId], references: [id], onDelete: Cascade)
+}
+
+model ExamConfig {
+  id                    String   @id @default(cuid())
+  countryCode           String
+  category              String
+  totalQuestions        Int
+  durationSeconds       Int
+  passThresholdCorrect  Int
+  maxErrors             Int
+  sourceReference       String
+  verified              Boolean  @default(false)
+  activeFrom            DateTime?
+  activeTo              DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([countryCode, category])
+}
+
+model Session {
+  id               String            @id @default(cuid())
+  userId           String
+  category         String
+  mode             SessionMode
+  status           SessionStatus     @default(IN_PROGRESS)
+  totalQuestions   Int
+  durationSeconds  Int
+  scoreCorrect     Int               @default(0)
+  scoreWrong       Int               @default(0)
+  passed           Boolean?
+  startedAt        DateTime          @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionQuestions SessionQuestion[]
+  sessionAnswers   SessionAnswer[]
+}
+
+model SessionQuestion {
+  id         String   @id @default(cuid())
+  sessionId  String
+  questionId String
+  orderIndex Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, orderIndex])
+}
+
+model SessionAnswer {
+  id              String   @id @default(cuid())
+  sessionId       String
+  questionId      String
+  selectedAnswerIds Json?
+  isCorrect       Boolean
+  timeSpentSeconds Int     @default(0)
+  answeredAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model QuestionReport {
+  id         String    @id @default(cuid())
+  questionId String
+  userId     String
+  type       ReportType
+  comment    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  question   Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Rule {
+  id           String    @id @default(cuid())
+  slug         String    @unique
+  title        String
+  language     String
+  chapter      String?
+  content      String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Sign {
+  id           String    @id @default(cuid())
+  code         String?   @unique
+  title        String
+  language     String
+  category     String
+  imageUrl     String?
+  description  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
