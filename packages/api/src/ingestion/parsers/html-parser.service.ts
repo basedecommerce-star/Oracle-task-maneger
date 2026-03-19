@@ -177,6 +177,13 @@ export class HtmlParserService {
   }
 
   private stripHtml(html: string): string {
-    return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    // Loop until no more HTML tags remain to prevent nested tag bypass
+    let result = html;
+    let previous: string;
+    do {
+      previous = result;
+      result = result.replace(/<[^>]+>/g, '');
+    } while (result !== previous);
+    return result.replace(/\s+/g, ' ');
   }
 }
