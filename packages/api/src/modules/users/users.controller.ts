@@ -6,7 +6,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  async getProfile(@Query('userId') userId: string) {
+  async getProfile(@Query('userId') userId?: string) {
+    // userId will come from JWT/auth context in production
     return this.usersService.getProfile(userId);
   }
 
@@ -14,12 +15,12 @@ export class UsersController {
   async updateSettings(
     @Body()
     body: {
-      userId: string;
-      preferredLang?: string;
+      languageCode?: string;
       categoryId?: string;
     },
+    @Query('userId') userId?: string,
   ) {
-    const { userId, ...settings } = body;
-    return this.usersService.updateSettings(userId, settings);
+    // userId will come from JWT/auth context in production
+    return this.usersService.updateSettings(userId, body);
   }
 }

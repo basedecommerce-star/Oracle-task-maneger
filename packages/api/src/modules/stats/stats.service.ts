@@ -5,79 +5,86 @@ import { PrismaService } from '../../database/prisma.service';
 export class StatsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOverview(userId: string) {
-    const [
-      totalSessions,
-      examSessions,
-      trainingSessions,
-      questionStats,
-      recentExams,
-    ] = await Promise.all([
-      this.prisma.session.count({ where: { userId } }),
-      this.prisma.session.findMany({
-        where: { userId, sessionType: 'EXAM', status: 'COMPLETED' },
-        select: { isPassed: true, correctAnswers: true, totalQuestions: true },
-      }),
-      this.prisma.session.count({
-        where: { userId, sessionType: 'TRAINING' },
-      }),
+  async getOverview(userId?: string) {
+    const userFilter = userId ? { userId } : {};
+
+    const [questionStats, topicStats, recentSessions] = await Promise.all([
       this.prisma.userQuestionStat.aggregate({
-        where: { userId },
+        where: userFilter,
         _sum: {
           timesAnswered: true,
           timesCorrect: true,
           timesWrong: true,
         },
-        _count: true,
       }),
+
+      this.prisma.userQuestionStat.findMany({
+        where: userFilter,
+        include: {
+          question: {
+            include: { topic: true },
+          },
+        },
+      }),
+
       this.prisma.session.findMany({
-        where: { userId, sessionType: 'EXAM', status: 'COMPLETED' },
-        orderBy: { finishedAt: 'desc' },
+        where: userFilter,
+        orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
           id: true,
-          isPassed: true,
-          correctAnswers: true,
-          wrongAnswers: true,
+          sessionType: true,
           totalQuestions: true,
-          startedAt: true,
-          finishedAt: true,
+          correctAnswers: true,
+          isPassed: true,
+          createdAt: true,
         },
       }),
     ]);
 
-    const examsPassed = examSessions.filter((e) => e.isPassed).length;
-    const examsFailed = examSessions.filter(
-      (e) => e.isPassed === false,
-    ).length;
+    const totalAnswered = questionStats._sum.timesAnswered ?? 0;
+    const totalCorrect = questionStats._sum.timesCorrect ?? 0;
+    const totalWrong = questionStats._sum.timesWrong ?? 0;
+    const correctRate =
+      totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
+
+    // Aggregate stats by topic
+    const topicMap = new Map<
+      string,
+      { topicId: string; topicName: string; answered: number; correct: number }
+    >();
+    for (const stat of topicStats) {
+      const topicId = stat.question.topicId ?? 'unknown';
+      const topicName =
+        stat.question.topic?.nameRu ?? stat.question.topic?.nameRo ?? 'Unknown';
+      const existing = topicMap.get(topicId);
+      if (existing) {
+        existing.answered += stat.timesAnswered;
+        existing.correct += stat.timesCorrect;
+      } else {
+        topicMap.set(topicId, {
+          topicId,
+          topicName,
+          answered: stat.timesAnswered,
+          correct: stat.timesCorrect,
+        });
+      }
+    }
 
     return {
-      totalSessions,
-      trainingSessions,
-      exams: {
-        total: examSessions.length,
-        passed: examsPassed,
-        failed: examsFailed,
-        passRate:
-          examSessions.length > 0
-            ? Math.round((examsPassed / examSessions.length) * 100)
-            : 0,
-      },
-      questions: {
-        uniqueAnswered: questionStats._count,
-        totalAnswered: questionStats._sum.timesAnswered ?? 0,
-        totalCorrect: questionStats._sum.timesCorrect ?? 0,
-        totalWrong: questionStats._sum.timesWrong ?? 0,
-        correctRate:
-          (questionStats._sum.timesAnswered ?? 0) > 0
-            ? Math.round(
-                ((questionStats._sum.timesCorrect ?? 0) /
-                  (questionStats._sum.timesAnswered ?? 0)) *
-                  100,
-              )
-            : 0,
-      },
-      recentExams,
+      totalAnswered,
+      totalCorrect,
+      totalWrong,
+      correctRate,
+      byTopic: Array.from(topicMap.values()),
+      recentSessions: recentSessions.map((s) => ({
+        sessionId: s.id,
+        sessionType: s.sessionType,
+        totalQuestions: s.totalQuestions,
+        correctAnswers: s.correctAnswers,
+        isPassed: s.isPassed,
+        createdAt: s.createdAt.toISOString(),
+      })),
     };
   }
 }

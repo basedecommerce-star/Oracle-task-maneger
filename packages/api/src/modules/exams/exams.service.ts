@@ -10,7 +10,8 @@ import { getDefaultConfigForCategory } from '../../config/exam-config.constants'
 export class ExamsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async startExam(userId: string, categoryCode: string) {
+  async startExam(userId: string | undefined, categoryCode: string) {
+    if (!userId) throw new BadRequestException('userId is required');
     const category = await this.prisma.category.findUnique({
       where: { code: categoryCode },
     });
@@ -272,12 +273,13 @@ export class ExamsService {
       finishedAt: finishedSession.finishedAt,
       results: session.sessionQuestions.map((sq) => ({
         questionOrder: sq.questionOrder,
-        questionId: sq.questionId,
+        questionText: sq.question.questionText,
         isCorrect: sq.isCorrect,
         selectedAnswerIds: sq.sessionAnswers.map((sa) => sa.answerId),
         correctAnswerIds: sq.question.answers
           .filter((a) => a.isCorrect)
           .map((a) => a.id),
+        explanationText: sq.question.explanationText ?? null,
       })),
     };
   }

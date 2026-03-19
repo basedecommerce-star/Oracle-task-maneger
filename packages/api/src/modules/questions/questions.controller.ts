@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   Body,
-  Req,
 } from '@nestjs/common';
 import { QuestionsService } from './questions.service';
 
@@ -35,13 +34,16 @@ export class QuestionsController {
   @Post(':id/report')
   async reportQuestion(
     @Param('id') id: string,
-    @Body() body: { userId: string; complaintType: string; comment?: string },
+    @Query('userId') userId?: string,
+    @Body() body?: { complaintType: string; comment?: string; userId?: string },
   ) {
+    // userId from auth context (query param for now), fallback to body
+    const resolvedUserId = userId ?? body?.userId;
     return this.questionsService.reportQuestion(
       id,
-      body.userId,
-      body.complaintType,
-      body.comment,
+      resolvedUserId,
+      body?.complaintType ?? '',
+      body?.comment,
     );
   }
 }

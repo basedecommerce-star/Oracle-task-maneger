@@ -11,13 +11,14 @@ export class TrainingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async startTraining(params: {
-    userId: string;
+    userId?: string;
     categoryCode?: string;
     topicId?: string;
     ticketNumber?: number;
     questionCount?: number;
   }) {
     const { userId, categoryCode, topicId, ticketNumber, questionCount = 20 } = params;
+    if (!userId) throw new BadRequestException('userId is required');
 
     const where: Prisma.QuestionWhereInput = {
       isPublished: true,

@@ -1,4 +1,4 @@
-import { Controller, Post, Param, Body } from '@nestjs/common';
+import { Controller, Post, Param, Body, Query } from '@nestjs/common';
 import { ExamsService } from './exams.service';
 
 @Controller('exams')
@@ -7,9 +7,12 @@ export class ExamsController {
 
   @Post('start')
   async startExam(
-    @Body() body: { userId: string; categoryCode: string },
+    @Query('userId') userId?: string,
+    @Body() body?: { categoryCode: string; userId?: string },
   ) {
-    return this.examsService.startExam(body.userId, body.categoryCode);
+    // userId from auth context (query param for now), fallback to body
+    const resolvedUserId = userId ?? body?.userId;
+    return this.examsService.startExam(resolvedUserId, body?.categoryCode ?? '');
   }
 
   @Post(':id/answer')

@@ -74,15 +74,24 @@ export class QuestionsService {
 
   async reportQuestion(
     questionId: string,
-    userId: string,
+    userId: string | undefined,
     complaintType: string,
     comment?: string,
   ) {
+    if (!userId) {
+      throw new Error('userId is required to report a question');
+    }
+
+    const validTypes: string[] = Object.values(ComplaintType);
+    const resolvedType = validTypes.includes(complaintType)
+      ? (complaintType as ComplaintType)
+      : ComplaintType.OTHER;
+
     return this.prisma.questionReport.create({
       data: {
         questionId,
         userId,
-        complaintType: complaintType as ComplaintType,
+        complaintType: resolvedType,
         comment,
         status: 'OPEN',
       },
