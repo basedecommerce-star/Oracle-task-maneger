@@ -5,6 +5,7 @@ dotenv.config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://example.com";
+const API_URL = process.env.API_URL || "http://localhost:3001/api";
 
 if (!BOT_TOKEN) {
   console.error("BOT_TOKEN is not set in environment variables");
@@ -32,15 +33,35 @@ bot.command("help", (ctx) => {
   );
 });
 
-bot.command("stats", (ctx) => {
+bot.command("stats", async (ctx) => {
   const userId = ctx.from?.id;
-  return ctx.reply(
-    `📊 Статистика (ID: ${userId}):\n\n` +
-      "Пройдено тестов: —\n" +
-      "Правильных ответов: —\n" +
-      "Прогресс: —\n\n" +
-      "Подробная статистика доступна в мини-приложении."
-  );
+
+  try {
+    const response = await fetch(
+      `${API_URL}/stats/overview?userId=${userId}`,
+    );
+
+    if (!response.ok) {
+      return ctx.reply("📊 Statistics unavailable. Please try again later.");
+    }
+
+    const data = (await response.json()) as {
+      totalSessions: number;
+      exams: { total: number; passed: number; passRate: number };
+      questions: { totalAnswered: number; totalCorrect: number; correctRate: number };
+    };
+
+    return ctx.reply(
+      `📊 Статистика (ID: ${userId}):\n\n` +
+        `Пройдено тестов: ${data.exams.total}\n` +
+        `Сдано экзаменов: ${data.exams.passed} (${data.exams.passRate}%)\n` +
+        `Отвечено вопросов: ${data.questions.totalAnswered}\n` +
+        `Правильных ответов: ${data.questions.totalCorrect} (${data.questions.correctRate}%)\n\n` +
+        "Подробная статистика доступна в мини-приложении.",
+    );
+  } catch {
+    return ctx.reply("📊 Statistics unavailable. Please try again later.");
+  }
 });
 
 bot.launch().then(() => {

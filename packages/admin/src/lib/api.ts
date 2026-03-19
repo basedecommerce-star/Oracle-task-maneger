@@ -4,82 +4,120 @@ interface FetchOptions extends RequestInit {
   token?: string;
 }
 
-interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
+// --- Response types matching backend ---
+
+export interface StatsOverview {
+  totalSessions: number;
+  trainingSessions: number;
+  exams: {
+    total: number;
+    passed: number;
+    failed: number;
+    passRate: number;
+  };
+  questions: {
+    uniqueAnswered: number;
+    totalAnswered: number;
+    totalCorrect: number;
+    totalWrong: number;
+    correctRate: number;
+  };
 }
 
-interface DashboardStats {
+export interface Category {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+  examConfigs: ExamConfig[];
+}
+
+export interface ExamConfig {
+  id: string;
+  categoryId: string;
+  timeLimit: number;
   totalQuestions: number;
-  pendingReview: number;
-  activeConflicts: number;
-  recentImports: number;
+  passingScore: number;
+  activeTo: string | null;
 }
 
-interface Question {
-  id: string;
-  text: string;
-  status: string;
-  category: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface QuestionFilters {
-  status?: string;
-  category?: string;
-  search?: string;
-  page?: number;
-  pageSize?: number;
-}
-
-interface Conflict {
-  id: string;
-  questionId: string;
-  type: string;
-  status: string;
-  createdAt: string;
-}
-
-interface EvidenceBundle {
-  id: string;
-  questionId: string;
-  sources: string[];
-  createdAt: string;
-}
-
-interface ImportRecord {
-  id: string;
-  filename: string;
-  status: string;
-  totalRecords: number;
-  processedRecords: number;
-  createdAt: string;
-}
-
-interface Report {
-  id: string;
-  type: string;
-  status: string;
-  createdAt: string;
-}
-
-interface AuditLogEntry {
-  id: string;
-  action: string;
-  userId: string;
-  timestamp: string;
-  details: string;
-}
-
-interface ExamConfig {
+export interface Topic {
   id: string;
   name: string;
-  questionCount: number;
-  timeLimit: number;
-  passingScore: number;
+  code: string;
+  sortOrder: number;
+  categoryId: string;
+}
+
+export interface QuestionTranslation {
+  language: string;
+  questionText: string;
+}
+
+export interface QuestionAnswer {
+  id: string;
+  answerOrder: number;
+  answerText: string;
+}
+
+export interface Question {
+  id: string;
+  ticketNumber: number;
+  verificationStatus: string;
+  isPublished: boolean;
+  answers: QuestionAnswer[];
+  topic: {
+    id: string;
+    name: string;
+    code: string;
+    sortOrder: number;
+  };
+  translations: QuestionTranslation[];
+}
+
+export interface QuestionsResponse {
+  questions: Question[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface QuestionFilters {
+  categoryId?: string;
+  topicId?: string;
+  ticketNumber?: number;
+  lang?: string;
+  page?: number;
+  limit?: number;
+  verificationStatus?: string;
+}
+
+export interface ParserRun {
+  id: string;
+  snapshotId: string;
+  parserType: string;
+  parserVersion: string;
+  status: string;
+}
+
+export interface ConflictOutput {
+  id: string;
+  parserRun: ParserRun;
+}
+
+export interface Conflict {
+  id: string;
+  isConflict: boolean;
+  resolvedAt: string | null;
+  outputA: ConflictOutput;
+  outputB: ConflictOutput;
+  createdAt: string;
+}
+
+export interface EvidenceBundle {
+  id: string;
+  [key: string]: unknown;
 }
 
 async function fetchWithAuth<T>(
@@ -110,159 +148,129 @@ async function fetchWithAuth<T>(
   return response.json() as Promise<T>;
 }
 
-export function getDashboardStats(token?: string): Promise<DashboardStats> {
-  return fetchWithAuth<DashboardStats>('/admin/dashboard/stats', { token });
+// --- Stats ---
+
+export function getStatsOverview(token?: string): Promise<StatsOverview> {
+  return fetchWithAuth<StatsOverview>('/stats/overview', { token });
 }
+
+// --- Categories & Exam Configs ---
+
+export function getCategories(token?: string): Promise<Category[]> {
+  return fetchWithAuth<Category[]>('/categories', { token });
+}
+
+// --- Topics ---
+
+export function getTopics(token?: string): Promise<Topic[]> {
+  return fetchWithAuth<Topic[]>('/topics', { token });
+}
+
+// --- Questions ---
 
 export function getQuestions(
   filters: QuestionFilters = {},
   token?: string
-): Promise<PaginatedResponse<Question>> {
+): Promise<QuestionsResponse> {
   const params = new URLSearchParams();
-  if (filters.status) params.set('status', filters.status);
-  if (filters.category) params.set('category', filters.category);
-  if (filters.search) params.set('search', filters.search);
+  if (filters.categoryId) params.set('categoryId', filters.categoryId);
+  if (filters.topicId) params.set('topicId', filters.topicId);
+  if (filters.ticketNumber) params.set('ticketNumber', String(filters.ticketNumber));
+  if (filters.lang) params.set('lang', filters.lang);
   if (filters.page) params.set('page', String(filters.page));
-  if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.verificationStatus) params.set('verificationStatus', filters.verificationStatus);
 
   const query = params.toString();
-  return fetchWithAuth<PaginatedResponse<Question>>(
-    `/admin/questions${query ? `?${query}` : ''}`,
+  return fetchWithAuth<QuestionsResponse>(
+    `/questions${query ? `?${query}` : ''}`,
     { token }
   );
 }
 
-export function getQuestion(id: string, token?: string): Promise<Question> {
-  return fetchWithAuth<Question>(`/admin/questions/${encodeURIComponent(id)}`, { token });
-}
+// --- Admin: Import ---
 
-export function updateQuestionStatus(
-  id: string,
-  status: string,
+export function importSourceSnapshot(
+  data: {
+    sourceProviderId: string;
+    sourceUrl: string;
+    sourceType: string;
+    rawContent?: string;
+    storageKey?: string;
+    screenshotKey?: string;
+    parserVersion: string;
+    adminUserId: string;
+  },
   token?: string
-): Promise<Question> {
-  return fetchWithAuth<Question>(`/admin/questions/${encodeURIComponent(id)}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
+): Promise<unknown> {
+  return fetchWithAuth('/admin/import/source-snapshot', {
+    method: 'POST',
+    body: JSON.stringify(data),
     token,
   });
 }
 
-export function getReviewQueue(
-  page = 1,
+// --- Admin: Parser ---
+
+export function runParser(
+  data: { snapshotId: string; parserType: string },
   token?: string
-): Promise<PaginatedResponse<Question>> {
-  return fetchWithAuth<PaginatedResponse<Question>>(
-    `/admin/review?page=${page}`,
-    { token }
-  );
+): Promise<{ parserRunId: string; status: string }> {
+  return fetchWithAuth('/admin/parser/run', {
+    method: 'POST',
+    body: JSON.stringify(data),
+    token,
+  });
 }
 
-export function approveQuestion(id: string, token?: string): Promise<Question> {
-  return fetchWithAuth<Question>(`/admin/review/${encodeURIComponent(id)}/approve`, {
+// --- Admin: Conflicts ---
+
+export function getConflicts(token?: string): Promise<Conflict[]> {
+  return fetchWithAuth<Conflict[]>('/admin/conflicts', { token });
+}
+
+// --- Admin: Question moderation ---
+
+export function approveQuestion(
+  id: string,
+  moderatorId: string,
+  comment?: string,
+  token?: string
+): Promise<Question> {
+  return fetchWithAuth<Question>(`/admin/questions/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
+    body: JSON.stringify({ moderatorId, comment }),
     token,
   });
 }
 
 export function rejectQuestion(
   id: string,
-  reason: string,
+  moderatorId: string,
+  comment?: string,
   token?: string
 ): Promise<Question> {
-  return fetchWithAuth<Question>(`/admin/review/${encodeURIComponent(id)}/reject`, {
+  return fetchWithAuth<Question>(`/admin/questions/${encodeURIComponent(id)}/reject`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ moderatorId, comment }),
     token,
   });
 }
 
-export function getConflicts(
-  page = 1,
-  token?: string
-): Promise<PaginatedResponse<Conflict>> {
-  return fetchWithAuth<PaginatedResponse<Conflict>>(
-    `/admin/conflicts?page=${page}`,
-    { token }
-  );
-}
-
-export function resolveConflict(
+export function publishQuestion(
   id: string,
-  resolution: string,
+  moderatorId: string,
   token?: string
-): Promise<Conflict> {
-  return fetchWithAuth<Conflict>(`/admin/conflicts/${encodeURIComponent(id)}/resolve`, {
+): Promise<Question> {
+  return fetchWithAuth<Question>(`/admin/questions/${encodeURIComponent(id)}/publish`, {
     method: 'POST',
-    body: JSON.stringify({ resolution }),
+    body: JSON.stringify({ moderatorId }),
     token,
   });
 }
 
-export function getEvidenceBundles(
-  page = 1,
-  token?: string
-): Promise<PaginatedResponse<EvidenceBundle>> {
-  return fetchWithAuth<PaginatedResponse<EvidenceBundle>>(
-    `/admin/evidence?page=${page}`,
-    { token }
-  );
-}
+// --- Admin: Evidence ---
 
-export function getImports(
-  page = 1,
-  token?: string
-): Promise<PaginatedResponse<ImportRecord>> {
-  return fetchWithAuth<PaginatedResponse<ImportRecord>>(
-    `/admin/imports?page=${page}`,
-    { token }
-  );
-}
-
-export function getReports(
-  page = 1,
-  token?: string
-): Promise<PaginatedResponse<Report>> {
-  return fetchWithAuth<PaginatedResponse<Report>>(
-    `/admin/reports?page=${page}`,
-    { token }
-  );
-}
-
-export function updateReportStatus(
-  id: string,
-  status: string,
-  token?: string
-): Promise<Report> {
-  return fetchWithAuth<Report>(`/admin/reports/${encodeURIComponent(id)}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-    token,
-  });
-}
-
-export function getAuditLog(
-  page = 1,
-  token?: string
-): Promise<PaginatedResponse<AuditLogEntry>> {
-  return fetchWithAuth<PaginatedResponse<AuditLogEntry>>(
-    `/admin/audit-log?page=${page}`,
-    { token }
-  );
-}
-
-export function getExamConfigs(token?: string): Promise<ExamConfig[]> {
-  return fetchWithAuth<ExamConfig[]>('/admin/exam-configs', { token });
-}
-
-export function updateExamConfig(
-  id: string,
-  data: Partial<ExamConfig>,
-  token?: string
-): Promise<ExamConfig> {
-  return fetchWithAuth<ExamConfig>(`/admin/exam-configs/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-    token,
-  });
+export function getEvidence(id: string, token?: string): Promise<EvidenceBundle> {
+  return fetchWithAuth<EvidenceBundle>(`/admin/evidence/${encodeURIComponent(id)}`, { token });
 }

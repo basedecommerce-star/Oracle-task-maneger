@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { getQuestions, type Question } from '@/lib/api';
 
-type QuestionStatus =
+type VerificationStatus =
+  | 'ALL'
   | 'RAW'
   | 'PARSED'
   | 'NORMALIZED'
@@ -12,15 +14,7 @@ type QuestionStatus =
   | 'PUBLISHED'
   | 'ARCHIVED';
 
-interface Question {
-  id: string;
-  text: string;
-  category: string;
-  status: QuestionStatus;
-  confidence: number;
-}
-
-const statusColors: Record<QuestionStatus, string> = {
+const statusColors: Record<string, string> = {
   RAW: 'bg-gray-100 text-gray-700',
   PARSED: 'bg-blue-100 text-blue-700',
   NORMALIZED: 'bg-indigo-100 text-indigo-700',
@@ -31,39 +25,68 @@ const statusColors: Record<QuestionStatus, string> = {
   ARCHIVED: 'bg-gray-100 text-gray-500',
 };
 
-const allStatuses: QuestionStatus[] = [
-  'RAW', 'PARSED', 'NORMALIZED', 'CONFLICT',
+const allStatuses: VerificationStatus[] = [
+  'ALL', 'RAW', 'PARSED', 'NORMALIZED', 'CONFLICT',
   'REVIEW_REQUIRED', 'VERIFIED', 'PUBLISHED', 'ARCHIVED',
 ];
 
-const placeholderQuestions: Question[] = [
-  { id: 'Q-0001', text: 'Care este viteza maximă admisă în localități pentru autoturisme?', category: 'B', status: 'VERIFIED', confidence: 0.98 },
-  { id: 'Q-0002', text: 'Ce semnifică indicatorul de circulație prezentat în imagine?', category: 'B', status: 'REVIEW_REQUIRED', confidence: 0.72 },
-  { id: 'Q-0003', text: 'În ce situații este interzisă depășirea?', category: 'A', status: 'CONFLICT', confidence: 0.45 },
-  { id: 'Q-0004', text: 'Câte categorii de permise de conducere există în Republica Moldova?', category: 'AM', status: 'PUBLISHED', confidence: 0.95 },
-  { id: 'Q-0005', text: 'Ce trebuie să facă conducătorul auto la intersecția prezentată?', category: 'C', status: 'PARSED', confidence: 0.81 },
-  { id: 'Q-0006', text: 'Cine are prioritate la intersecția nedirijată?', category: 'B', status: 'NORMALIZED', confidence: 0.88 },
-  { id: 'Q-0007', text: 'Ce semnifică marcajul rutier din imaginea prezentată?', category: 'D', status: 'RAW', confidence: 0.33 },
-  { id: 'Q-0008', text: 'Distanța minimă de siguranță în afara localităților este…', category: 'B', status: 'ARCHIVED', confidence: 0.91 },
-];
-
 export default function QuestionsPage() {
-  const [statusFilter, setStatusFilter] = useState<QuestionStatus | 'ALL'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<VerificationStatus>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
-  const perPage = 10;
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const perPage = 20;
 
-  const filtered =
-    statusFilter === 'ALL'
-      ? placeholderQuestions
-      : placeholderQuestions.filter((q) => q.status === statusFilter);
+  const loadQuestions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const filters: Record<string, unknown> = { page: currentPage, limit: perPage };
+      if (statusFilter !== 'ALL') {
+        filters.verificationStatus = statusFilter;
+      }
+      const response = await getQuestions(filters);
+      setQuestions(response.questions);
+      setTotal(response.total);
+    } catch {
+      setError('Unable to load questions. Check that the API is running.');
+      setQuestions([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, currentPage]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  useEffect(() => {
+    loadQuestions();
+  }, [loadQuestions]);
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  const getQuestionText = (q: Question): string => {
+    const translation = q.translations?.find(t => t.language === 'ro') ?? q.translations?.[0];
+    return translation?.questionText ?? `Question #${q.ticketNumber}`;
+  };
+
+  if (error && questions.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">Questions</h2>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50 py-16 shadow-sm">
+          <span className="text-4xl">⚠️</span>
+          <p className="mt-4 text-lg font-medium text-red-700">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Questions</h2>
-        <span className="text-sm text-gray-500">{filtered.length} results</span>
+        <span className="text-sm text-gray-500">{total} results</span>
       </div>
 
       {/* Filter bar */}
@@ -72,79 +95,70 @@ export default function QuestionsPage() {
         <select
           value={statusFilter}
           onChange={(e) => {
-            setStatusFilter(e.target.value as QuestionStatus | 'ALL');
+            setStatusFilter(e.target.value as VerificationStatus);
             setCurrentPage(1);
           }}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
-          <option value="ALL">All Statuses</option>
           {allStatuses.map((s) => (
-            <option key={s} value={s}>{s.replace('_', ' ')}</option>
+            <option key={s} value={s}>
+              {s === 'ALL' ? 'All Statuses' : s.replace(/_/g, ' ')}
+            </option>
           ))}
         </select>
       </div>
 
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 font-semibold text-gray-600">ID</th>
-              <th className="px-4 py-3 font-semibold text-gray-600">Question Text</th>
-              <th className="px-4 py-3 font-semibold text-gray-600">Category</th>
-              <th className="px-4 py-3 font-semibold text-gray-600">Status</th>
-              <th className="px-4 py-3 font-semibold text-gray-600">Confidence</th>
-              <th className="px-4 py-3 font-semibold text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filtered.map((q) => (
-              <tr key={q.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{q.id}</td>
-                <td className="max-w-md truncate px-4 py-3 text-gray-800" title={q.text}>
-                  {q.text}
-                </td>
-                <td className="px-4 py-3">
-                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                    {q.category}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[q.status]}`}>
-                    {q.status.replace('_', ' ')}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-16 rounded-full bg-gray-200">
-                      <div
-                        className={`h-1.5 rounded-full ${
-                          q.confidence >= 0.8
-                            ? 'bg-green-500'
-                            : q.confidence >= 0.5
-                              ? 'bg-amber-500'
-                              : 'bg-red-500'
-                        }`}
-                        style={{ width: `${q.confidence * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-gray-500">{(q.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button className="text-xs font-medium text-primary-600 hover:text-primary-800">
-                      View
-                    </button>
-                    <button className="text-xs font-medium text-gray-500 hover:text-gray-700">
-                      Edit
-                    </button>
-                  </div>
-                </td>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-gray-500">Loading…</p>
+          </div>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 font-semibold text-gray-600">ID</th>
+                <th className="px-4 py-3 font-semibold text-gray-600">Question Text</th>
+                <th className="px-4 py-3 font-semibold text-gray-600">Ticket</th>
+                <th className="px-4 py-3 font-semibold text-gray-600">Topic</th>
+                <th className="px-4 py-3 font-semibold text-gray-600">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {questions.map((q) => (
+                <tr key={q.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    {q.id.slice(0, 8)}…
+                  </td>
+                  <td className="max-w-md truncate px-4 py-3 text-gray-800" title={getQuestionText(q)}>
+                    {getQuestionText(q)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                      #{q.ticketNumber}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {q.topic?.name ?? '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[q.verificationStatus] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {q.verificationStatus.replace(/_/g, ' ')}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {questions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                    No questions found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Pagination */}

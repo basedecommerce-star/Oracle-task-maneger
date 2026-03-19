@@ -1,178 +1,87 @@
 'use client';
 
 import { useState } from 'react';
-
-interface EvidenceBundle {
-  id: string;
-  sourceUrl: string;
-  screenshotStatus: 'captured' | 'pending' | 'failed';
-  extractedTextPreview: string;
-  associatedQuestions: number;
-  createdAt: string;
-}
-
-const placeholderBundles: EvidenceBundle[] = [
-  {
-    id: 'EV-001',
-    sourceUrl: 'https://pdd.md/bilete/categoria-b/bilet-1',
-    screenshotStatus: 'captured',
-    extractedTextPreview:
-      'Biletul nr. 1 — Categoria B. 1. Care este viteza maximă admisă în localități pentru autoturisme? a) 50 km/h b) 60 km/h c) 40 km/h …',
-    associatedQuestions: 20,
-    createdAt: '2024-01-15T10:30:00Z',
-  },
-  {
-    id: 'EV-002',
-    sourceUrl: 'https://pdd.md/bilete/categoria-b/bilet-2',
-    screenshotStatus: 'captured',
-    extractedTextPreview:
-      'Biletul nr. 2 — Categoria B. 1. Ce semnifică semnalul roșu intermitent al semaforului? a) Oprire obligatorie b) Atenție …',
-    associatedQuestions: 20,
-    createdAt: '2024-01-15T10:32:00Z',
-  },
-  {
-    id: 'EV-003',
-    sourceUrl: 'https://pdd.md/bilete/categoria-c/bilet-1',
-    screenshotStatus: 'pending',
-    extractedTextPreview:
-      'Biletul nr. 1 — Categoria C. 1. Ce trebuie să verifice conducătorul înainte de plecarea în cursă? …',
-    associatedQuestions: 18,
-    createdAt: '2024-01-16T08:15:00Z',
-  },
-  {
-    id: 'EV-004',
-    sourceUrl: 'https://pdd.md/semne/avertizare',
-    screenshotStatus: 'failed',
-    extractedTextPreview:
-      'Indicatoare de avertizare. 1.1 — Curbă periculoasă la dreapta. 1.2 — Curbă periculoasă la stânga …',
-    associatedQuestions: 45,
-    createdAt: '2024-01-16T09:00:00Z',
-  },
-];
-
-const screenshotStatusConfig = {
-  captured: { label: 'Captured', color: 'bg-green-100 text-green-700' },
-  pending: { label: 'Pending', color: 'bg-amber-100 text-amber-700' },
-  failed: { label: 'Failed', color: 'bg-red-100 text-red-700' },
-};
+import { getEvidence, type EvidenceBundle } from '@/lib/api';
 
 export default function EvidencePage() {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [evidenceId, setEvidenceId] = useState('');
+  const [bundle, setBundle] = useState<EvidenceBundle | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const toggleExpand = (id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
+  const handleSearch = async () => {
+    if (!evidenceId.trim()) return;
+    setLoading(true);
+    setError(null);
+    setBundle(null);
+
+    try {
+      const data = await getEvidence(evidenceId.trim());
+      setBundle(data);
+    } catch {
+      setError(`Unable to load evidence bundle "${evidenceId}". Check the ID and ensure the API is running.`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Evidence Bundles</h2>
-        <span className="text-sm text-gray-500">
-          {placeholderBundles.length} bundles
-        </span>
+      <h2 className="text-2xl font-bold text-gray-900">Evidence Bundles</h2>
+
+      {/* Search form */}
+      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <label className="text-sm font-medium text-gray-600">Evidence ID:</label>
+        <input
+          type="text"
+          value={evidenceId}
+          onChange={(e) => setEvidenceId(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder="Enter evidence bundle ID…"
+          className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleSearch}
+          disabled={loading || !evidenceId.trim()}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? 'Loading…' : 'Fetch'}
+        </button>
       </div>
 
-      <div className="space-y-3">
-        {placeholderBundles.map((bundle) => {
-          const isExpanded = expandedId === bundle.id;
-          const ssConfig = screenshotStatusConfig[bundle.screenshotStatus];
+      {error && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50 py-12 shadow-sm">
+          <span className="text-4xl">⚠️</span>
+          <p className="mt-4 text-sm font-medium text-red-700">{error}</p>
+        </div>
+      )}
 
-          return (
-            <div
-              key={bundle.id}
-              className="rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
-            >
-              {/* Summary row */}
-              <button
-                onClick={() => toggleExpand(bundle.id)}
-                className="flex w-full items-center justify-between px-6 py-4 text-left"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="font-mono text-xs text-gray-400">
-                    {bundle.id}
-                  </span>
-                  <span className="text-sm text-primary-600 underline decoration-primary-200">
-                    {bundle.sourceUrl}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${ssConfig.color}`}
-                  >
-                    📸 {ssConfig.label}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {bundle.associatedQuestions} questions
-                  </span>
-                  <span className="text-gray-400">
-                    {isExpanded ? '▲' : '▼'}
-                  </span>
-                </div>
-              </button>
+      {bundle && (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-100 px-6 py-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Evidence Bundle: {bundle.id}
+            </h3>
+          </div>
+          <div className="p-6">
+            <pre className="rounded-lg bg-gray-50 p-4 text-xs text-gray-700 overflow-x-auto border border-gray-100">
+              {JSON.stringify(bundle, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
 
-              {/* Expanded detail */}
-              {isExpanded && (
-                <div className="border-t border-gray-100 px-6 py-4">
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div>
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                        Source URL
-                      </h4>
-                      <a
-                        href={bundle.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary-600 hover:underline"
-                      >
-                        {bundle.sourceUrl}
-                      </a>
-                    </div>
-                    <div>
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                        Created At
-                      </h4>
-                      <span className="text-sm text-gray-700">
-                        {new Date(bundle.createdAt).toLocaleString('ro-MD')}
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                        Screenshot
-                      </h4>
-                      <div className="flex h-32 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 text-sm text-gray-400">
-                        {bundle.screenshotStatus === 'captured'
-                          ? 'Screenshot preview placeholder'
-                          : bundle.screenshotStatus === 'pending'
-                            ? 'Capture in progress…'
-                            : 'Screenshot capture failed'}
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                        Extracted Text Preview
-                      </h4>
-                      <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
-                        {bundle.extractedTextPreview}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex gap-3">
-                    <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                      View Full Text
-                    </button>
-                    <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                      View Questions
-                    </button>
-                    <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                      Re-capture Screenshot
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {!bundle && !error && !loading && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
+          <span className="text-5xl">🔍</span>
+          <p className="mt-4 text-lg font-medium text-gray-700">
+            Search for an evidence bundle
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            Enter an evidence bundle ID above to view its details.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
