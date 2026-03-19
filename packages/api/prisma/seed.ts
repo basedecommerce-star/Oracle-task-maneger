@@ -38,9 +38,7 @@ async function main() {
   const categories: Record<string, any> = {};
   for (const cat of categoryDefs) {
     const category = await prisma.category.upsert({
-      where: {
-        code_countryId: { code: cat.code, countryId: moldova.id },
-      },
+      where: { code: cat.code },
       update: {},
       create: {
         code: cat.code,
@@ -98,12 +96,14 @@ async function main() {
     DE: tier3,
   };
 
+  const activeFrom = new Date('2024-01-01');
   for (const [code, params] of Object.entries(examConfigMap)) {
     await prisma.examConfig.upsert({
       where: {
-        countryId_categoryId: {
+        countryId_categoryId_activeFrom: {
           countryId: moldova.id,
           categoryId: categories[code].id,
+          activeFrom,
         },
       },
       update: {},
@@ -114,7 +114,7 @@ async function main() {
         durationSeconds: params.durationSeconds,
         passThresholdCorrect: params.passThresholdCorrect,
         maxErrors: params.maxErrors,
-        activeFrom: new Date('2024-01-01'),
+        activeFrom,
         sourcePriority: 'A',
         verified: true,
         sourceReference: 'ASP Moldova official parameters',
@@ -167,7 +167,7 @@ async function main() {
       create: {
         name: provider.name,
         url: provider.url,
-        sourcePriority: provider.sourcePriority,
+        sourcePriority: provider.sourcePriority as any,
         isActive: provider.isActive,
       },
     });

@@ -84,11 +84,7 @@ function matchOutputs(
 
 type ComparisonField = "questionText" | "answersJson" | "imageUrl" | "explanationText";
 
-async function compareAndCreateDiffs(
-  pair: MatchedPair,
-  parserRunIdA: string,
-  parserRunIdB: string
-): Promise<number> {
+async function compareAndCreateDiffs(pair: MatchedPair): Promise<number> {
   let conflicts = 0;
 
   const fields: ComparisonField[] = [
@@ -117,14 +113,11 @@ async function compareAndCreateDiffs(
 
     await prisma.parserDiff.create({
       data: {
-        parserRunAId: parserRunIdA,
-        parserRunBId: parserRunIdB,
-        parserOutputAId: pair.outputA.id,
-        parserOutputBId: pair.outputB.id,
+        outputAId: pair.outputA.id,
+        outputBId: pair.outputB.id,
         fieldName: field,
         valueA: String(valueA),
         valueB: String(valueB),
-        similarity,
         isConflict,
       },
     });
@@ -144,16 +137,16 @@ const worker = new Worker<ReconcilerJobData>(
     const [runA, runB] = await Promise.all([
       prisma.parserRun.findUniqueOrThrow({
         where: { id: parserRunIdA },
-        include: { outputs: true },
+        include: { parserOutputs: true },
       }),
       prisma.parserRun.findUniqueOrThrow({
         where: { id: parserRunIdB },
-        include: { outputs: true },
+        include: { parserOutputs: true },
       }),
     ]);
 
-    const outputsA = runA.outputs as unknown as ParserOutputRecord[];
-    const outputsB = runB.outputs as unknown as ParserOutputRecord[];
+    const outputsA = runA.parserOutputs as unknown as ParserOutputRecord[];
+    const outputsB = runB.parserOutputs as unknown as ParserOutputRecord[];
 
     console.log(
       `[reconciler] Run A has ${outputsA.length} outputs, Run B has ${outputsB.length} outputs`
@@ -164,11 +157,7 @@ const worker = new Worker<ReconcilerJobData>(
 
     let totalConflicts = 0;
     for (const pair of matched) {
-      const conflicts = await compareAndCreateDiffs(
-        pair,
-        parserRunIdA,
-        parserRunIdB
-      );
+      const conflicts = await compareAndCreateDiffs(pair);
       totalConflicts += conflicts;
     }
 

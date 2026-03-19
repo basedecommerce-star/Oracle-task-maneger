@@ -129,7 +129,7 @@ const worker = new Worker<ParserHtmlJobData>(
             parserRunId: parserRun.id,
             externalSourceId: q.externalSourceId,
             questionText: q.questionText,
-            answersJson: JSON.parse(JSON.stringify(q.answersJson)),
+            answersJson: JSON.stringify(q.answersJson),
             imageUrl: q.imageUrl,
             explanationText: q.explanationText,
           },
