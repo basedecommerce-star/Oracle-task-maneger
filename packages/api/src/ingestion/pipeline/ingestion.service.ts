@@ -13,8 +13,8 @@ import { ConfidenceScorerService } from '../confidence/confidence-scorer.service
  *
  * Step 1: Raw capture (source snapshot)
  * Step 2: Deterministic extraction (HTML parser)
- * Step 3: Secondary extraction (Visual/OCR parser)
- * Step 4: Diff comparison (reconciler)
+ * Step 3: Secondary extraction (Visual/OCR parser) — skipped when feature-flagged off
+ * Step 4: Diff comparison (reconciler) — skipped in single-parser mode
  * Step 5: Validation rules
  * Step 6: Confidence scoring
  * Step 7: Queue for human moderation
@@ -40,6 +40,7 @@ export class IngestionService {
     questionsCreated: number;
     conflicts: number;
     requiresReview: number;
+    singleParserMode: boolean;
   }> {
     this.logger.log(`Starting ingestion pipeline for snapshot ${snapshotId}`);
 
@@ -48,6 +49,13 @@ export class IngestionService {
       include: { sourceProvider: true },
     });
     if (!snapshot) throw new Error(`Snapshot ${snapshotId} not found`);
+
+    const visualEnabled = this.visualParser.isEnabled();
+    const singleParserMode = !visualEnabled;
+
+    if (singleParserMode) {
+      this.logger.log('Pipeline running in single-parser mode (visual parser disabled)');
+    }
 
     // Step 1: Raw capture is already done (snapshot exists)
     this.logger.log('Step 1: Raw capture — snapshot already stored');
@@ -61,18 +69,29 @@ export class IngestionService {
     );
     await this.finalizeParserRun(htmlParserRun.id, htmlOutputs.length);
 
-    // Step 3: Secondary extraction via Visual/OCR parser
-    this.logger.log('Step 3: Secondary extraction (Visual parser)');
-    const visualParserRun = await this.createParserRun(snapshotId, ParserType.VISUAL, snapshot.parserVersion);
-    const visualOutputs = await this.visualParser.parse(
-      snapshot.screenshotKey ?? '',
-      visualParserRun.id,
-    );
-    await this.finalizeParserRun(visualParserRun.id, visualOutputs.length);
+    // Step 3: Secondary extraction via Visual/OCR parser (skipped when disabled)
+    let visualOutputs: import('../parsers/html-parser.service').ParsedOutput[] = [];
+    if (visualEnabled) {
+      this.logger.log('Step 3: Secondary extraction (Visual parser)');
+      const visualParserRun = await this.createParserRun(snapshotId, ParserType.VISUAL, snapshot.parserVersion);
+      const visualResult = await this.visualParser.parse(
+        snapshot.screenshotKey ?? '',
+        visualParserRun.id,
+      );
+      visualOutputs = visualResult.outputs;
+      await this.finalizeParserRun(visualParserRun.id, visualOutputs.length);
+    } else {
+      this.logger.log('Step 3: Skipped — visual parser disabled by feature flag');
+    }
 
-    // Step 4: Diff comparison
-    this.logger.log('Step 4: Diff comparison (reconciler)');
-    const diffs = await this.reconciler.reconcile(htmlOutputs, visualOutputs);
+    // Step 4: Diff comparison (skipped in single-parser mode)
+    let diffs: import('../reconciler/reconciler.service').DiffResult[] = [];
+    if (visualEnabled) {
+      this.logger.log('Step 4: Diff comparison (reconciler)');
+      diffs = await this.reconciler.reconcile(htmlOutputs, visualOutputs, true);
+    } else {
+      this.logger.log('Step 4: Skipped — single-parser mode, no reconciliation needed');
+    }
 
     // Step 5: Validation rules
     this.logger.log('Step 5: Validation rules');
@@ -81,7 +100,12 @@ export class IngestionService {
 
     // Step 6: Confidence scoring
     this.logger.log('Step 6: Confidence scoring');
-    const scoredOutputs = await this.scorer.scoreAll(allOutputs, diffs, validationResults);
+    const scoredOutputs = await this.scorer.scoreAll(
+      allOutputs,
+      diffs,
+      validationResults,
+      singleParserMode,
+    );
 
     // Step 7: Create questions and queue for human moderation
     this.logger.log('Step 7: Queue for human moderation');
@@ -155,13 +179,15 @@ export class IngestionService {
     this.logger.log(
       `Pipeline complete: ${questionsCreated} questions created, ` +
         `${diffs.filter((d) => d.isConflict).length} conflicts, ` +
-        `${requiresReview} require review`,
+        `${requiresReview} require review` +
+        (singleParserMode ? ' (single-parser mode)' : ''),
     );
 
     return {
       questionsCreated,
       conflicts: diffs.filter((d) => d.isConflict).length,
       requiresReview,
+      singleParserMode,
     };
   }
 

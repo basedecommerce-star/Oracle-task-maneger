@@ -6,10 +6,14 @@ import {
 import { ParserType, VerificationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { PublicationPolicyService } from '../../ingestion/pipeline/publication-policy.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly publicationPolicy: PublicationPolicyService,
+  ) {}
 
   async importSourceSnapshot(data: {
     sourceProviderId: string;
@@ -133,17 +137,21 @@ export class AdminService {
   }
 
   /**
-   * Publish: only VERIFIED questions can be published.
-   * Never allow AI-generated content to be published without human verification.
+   * Publish: enforces full publication policy.
+   * Never allow AI-generated content to be published without human verification
+   * and passing all anti-hallucination checks.
    */
   async publishQuestion(questionId: string, moderatorId: string) {
     const question = await this.prisma.question.findUnique({
       where: { id: questionId },
     });
     if (!question) throw new NotFoundException('Question not found');
-    if (question.verificationStatus !== VerificationStatus.VERIFIED) {
+
+    // Run all publication-policy checks
+    const check = await this.publicationPolicy.checkPublishability(questionId);
+    if (!check.canPublish) {
       throw new BadRequestException(
-        'Only VERIFIED questions can be published. Human verification is required.',
+        `Cannot publish: ${check.reasons.join('; ')}`,
       );
     }
 

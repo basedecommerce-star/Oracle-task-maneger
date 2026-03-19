@@ -5,6 +5,7 @@ import { VisualParserService } from './parsers/visual-parser.service';
 import { ReconcilerService } from './reconciler/reconciler.service';
 import { QuestionValidatorService } from './validators/question-validator.service';
 import { ConfidenceScorerService } from './confidence/confidence-scorer.service';
+import { PublicationPolicyService } from './pipeline/publication-policy.service';
 
 @Module({
   providers: [
@@ -14,7 +15,8 @@ import { ConfidenceScorerService } from './confidence/confidence-scorer.service'
     ReconcilerService,
     QuestionValidatorService,
     ConfidenceScorerService,
+    PublicationPolicyService,
   ],
-  exports: [IngestionService],
+  exports: [IngestionService, PublicationPolicyService],
 })
 export class IngestionModule {}
