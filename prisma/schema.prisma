@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(cuid())
+  telegramId String   @unique
+  language   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  externalId  String?
+  category    String
+  language    String
+  text        String
+  status      String   @default("draft")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean  @default(false)
+  orderIndex Int
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
