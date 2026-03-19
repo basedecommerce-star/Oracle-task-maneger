@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdd_moldova
+      POSTGRES_USER: pdd_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pdd_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdd_user -d pdd_moldova"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./packages/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://pdd_user:${POSTGRES_PASSWORD:-pdd_secret}@db:5432/pdd_moldova
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      BOT_TOKEN: ${BOT_TOKEN}
+      API_PORT: 3001
+      NODE_ENV: ${NODE_ENV:-production}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  webapp:
+    build:
+      context: ./packages/webapp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+      NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+
+  bot:
+    build:
+      context: ./packages/bot
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      WEBAPP_URL: ${WEBAPP_URL:-https://localhost}
+      API_URL: http://api:3001
+
+  admin:
+    build:
+      context: ./packages/admin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+      PORT: 3002
+
+  worker-parser-html:
+    build:
+      context: ./packages/workers/parser-html
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdd_user:${POSTGRES_PASSWORD:-pdd_secret}@db:5432/pdd_moldova
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-parser-visual:
+    build:
+      context: ./packages/workers/parser-visual
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdd_user:${POSTGRES_PASSWORD:-pdd_secret}@db:5432/pdd_moldova
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-reconciler:
+    build:
+      context: ./packages/workers/reconciler
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdd_user:${POSTGRES_PASSWORD:-pdd_secret}@db:5432/pdd_moldova
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - webapp
+      - admin
+
+volumes:
+  pgdata:
+  redis-data:
+  storage:

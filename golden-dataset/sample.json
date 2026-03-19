@@ -1,0 +1,97 @@
+[
+  {
+    "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "external_source_id": "SRC-001",
+    "category_code": "B",
+    "ticket_number": 1,
+    "topic_code": "T01",
+    "language": "ro",
+    "question_text": "[PLACEHOLDER - replace with verified source data] Sample question about traffic rules for category B, ticket 1.",
+    "image_url": null,
+    "answers": [
+      { "text": "[PLACEHOLDER] Answer option A", "order": 1, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option B", "order": 2, "is_correct": true },
+      { "text": "[PLACEHOLDER] Answer option C", "order": 3, "is_correct": false }
+    ],
+    "explanation_text": "[PLACEHOLDER] Explanation of the correct answer for this question.",
+    "rule_reference": "Rule 1.1",
+    "source_url": "https://example.com/questions/1",
+    "source_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+    "external_source_id": "SRC-002",
+    "category_code": "A",
+    "ticket_number": 5,
+    "topic_code": "T03",
+    "language": "ru",
+    "question_text": "[PLACEHOLDER - replace with verified source data] Sample question about motorcycle traffic regulations for category A.",
+    "image_url": "https://example.com/images/question-2.png",
+    "answers": [
+      { "text": "[PLACEHOLDER] Answer option A", "order": 1, "is_correct": true },
+      { "text": "[PLACEHOLDER] Answer option B", "order": 2, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option C", "order": 3, "is_correct": false }
+    ],
+    "explanation_text": "[PLACEHOLDER] Explanation referencing the relevant traffic regulation.",
+    "rule_reference": "Rule 3.5",
+    "source_url": "https://example.com/questions/5",
+    "source_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+  },
+  {
+    "id": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    "external_source_id": "SRC-003",
+    "category_code": "C",
+    "ticket_number": 12,
+    "topic_code": "T07",
+    "language": "ro",
+    "question_text": "[PLACEHOLDER - replace with verified source data] Sample question about heavy vehicle regulations for category C, ticket 12.",
+    "image_url": "https://example.com/images/question-3.png",
+    "answers": [
+      { "text": "[PLACEHOLDER] Answer option A", "order": 1, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option B", "order": 2, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option C", "order": 3, "is_correct": true },
+      { "text": "[PLACEHOLDER] Answer option D", "order": 4, "is_correct": false }
+    ],
+    "explanation_text": null,
+    "rule_reference": "Rule 7.2",
+    "source_url": "https://example.com/questions/12",
+    "source_hash": "b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4"
+  },
+  {
+    "id": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+    "external_source_id": "SRC-004",
+    "category_code": "AM",
+    "ticket_number": 3,
+    "topic_code": "T02",
+    "language": "ru",
+    "question_text": "[PLACEHOLDER - replace with verified source data] Sample question about moped regulations for category AM, ticket 3.",
+    "image_url": null,
+    "answers": [
+      { "text": "[PLACEHOLDER] Answer option A", "order": 1, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option B", "order": 2, "is_correct": true }
+    ],
+    "explanation_text": "[PLACEHOLDER] Explanation for the moped regulation question.",
+    "rule_reference": null,
+    "source_url": "https://example.com/questions/am-3",
+    "source_hash": "c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5"
+  },
+  {
+    "id": "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b",
+    "external_source_id": "SRC-005",
+    "category_code": "BE",
+    "ticket_number": 8,
+    "topic_code": "T05",
+    "language": "ro",
+    "question_text": "[PLACEHOLDER - replace with verified source data] Sample question about towing regulations for category BE, ticket 8.",
+    "image_url": "https://example.com/images/question-5.png",
+    "answers": [
+      { "text": "[PLACEHOLDER] Answer option A", "order": 1, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option B", "order": 2, "is_correct": false },
+      { "text": "[PLACEHOLDER] Answer option C", "order": 3, "is_correct": true }
+    ],
+    "explanation_text": "[PLACEHOLDER] Explanation of the towing regulation answer.",
+    "rule_reference": "Rule 5.10",
+    "source_url": "https://example.com/questions/be-8",
+    "source_hash": "d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6"
+  }
+]
