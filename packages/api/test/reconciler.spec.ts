@@ -1,4 +1,4 @@
-import { ReconcilerService } from '../src/ingestion/reconciler/reconciler.service';
+import { ReconcilerService, DiffSeverity } from '../src/ingestion/reconciler/reconciler.service';
 import { ParsedOutput } from '../src/ingestion/parsers/html-parser.service';
 
 function makeMockPrisma() {
@@ -41,11 +41,11 @@ describe('ReconcilerService', () => {
     expect(diffs).toHaveLength(0);
   });
 
-  it('should match outputs by externalSourceId', async () => {
-    const html = makeOutput({ id: 'h1', externalSourceId: 'SRC-001' });
-    const visual = makeOutput({ id: 'v1', externalSourceId: 'SRC-001' });
+  it('should return empty diffs in single-parser mode (visualParserEnabled=false)', async () => {
+    const html = makeOutput({ id: 'h1' });
+    const visual = makeOutput({ id: 'v1', questionText: 'Totally different' });
 
-    const diffs = await service.reconcile([html], [visual]);
+    const diffs = await service.reconcile([html], [visual], false);
     expect(diffs).toHaveLength(0);
   });
 
@@ -57,45 +57,7 @@ describe('ReconcilerService', () => {
     expect(diffs).toHaveLength(0);
   });
 
-  it('should detect questionText differences', async () => {
-    const html = makeOutput({ id: 'h1' });
-    const visual = makeOutput({ id: 'v1', questionText: 'Different question text here' });
-
-    const diffs = await service.reconcile([html], [visual]);
-    expect(diffs.length).toBeGreaterThanOrEqual(1);
-    expect(diffs.some((d) => d.fieldName === 'questionText')).toBe(true);
-  });
-
-  it('should detect answer count differences', async () => {
-    const html = makeOutput({ id: 'h1' });
-    const visual = makeOutput({
-      id: 'v1',
-      answersJson: JSON.stringify([
-        { text: '50 km/h', order: 1, isCorrect: true },
-        { text: '60 km/h', order: 2, isCorrect: false },
-      ]),
-    });
-
-    const diffs = await service.reconcile([html], [visual]);
-    expect(diffs.some((d) => d.fieldName === 'answersCount')).toBe(true);
-  });
-
-  it('should detect answer text differences', async () => {
-    const html = makeOutput({ id: 'h1' });
-    const visual = makeOutput({
-      id: 'v1',
-      answersJson: JSON.stringify([
-        { text: '40 km/h', order: 1, isCorrect: true },
-        { text: '60 km/h', order: 2, isCorrect: false },
-        { text: '70 km/h', order: 3, isCorrect: false },
-      ]),
-    });
-
-    const diffs = await service.reconcile([html], [visual]);
-    expect(diffs.some((d) => d.fieldName === 'answer[0].text')).toBe(true);
-  });
-
-  it('should detect answer isCorrect differences', async () => {
+  it('should produce HARD_CONFLICT for correct_answer (isCorrect) mismatch', async () => {
     const html = makeOutput({ id: 'h1' });
     const visual = makeOutput({
       id: 'v1',
@@ -107,27 +69,86 @@ describe('ReconcilerService', () => {
     });
 
     const diffs = await service.reconcile([html], [visual]);
-    expect(diffs.some((d) => d.fieldName === 'answer[0].isCorrect')).toBe(true);
-    expect(diffs.some((d) => d.fieldName === 'answer[1].isCorrect')).toBe(true);
+    const isCorrectDiffs = diffs.filter((d) => d.fieldName.endsWith('.isCorrect'));
+    expect(isCorrectDiffs.length).toBeGreaterThanOrEqual(1);
+    for (const diff of isCorrectDiffs) {
+      expect(diff.severity).toBe(DiffSeverity.HARD_CONFLICT);
+      expect(diff.isConflict).toBe(true);
+    }
   });
 
-  it('all diffs should have isConflict=true', async () => {
+  it('should produce REVIEW_NEEDED for significant question text difference', async () => {
+    const html = makeOutput({ id: 'h1' });
+    const visual = makeOutput({ id: 'v1', questionText: 'A completely different question about parking' });
+
+    const diffs = await service.reconcile([html], [visual]);
+    const qtDiff = diffs.find((d) => d.fieldName === 'questionText');
+    expect(qtDiff).toBeDefined();
+    expect(qtDiff!.severity).toBe(DiffSeverity.REVIEW_NEEDED);
+    expect(qtDiff!.isConflict).toBe(true);
+  });
+
+  it('should produce MINOR for whitespace-only question text diffs', async () => {
+    const html = makeOutput({ id: 'h1', questionText: 'What is the speed limit?' });
+    const visual = makeOutput({ id: 'v1', questionText: 'What  is  the  speed  limit?' });
+
+    const diffs = await service.reconcile([html], [visual]);
+    // Whitespace-only diffs are normalized away — should produce 0 diffs
+    expect(diffs.filter((d) => d.fieldName === 'questionText')).toHaveLength(0);
+  });
+
+  it('should produce MINOR for answer order diffs', async () => {
     const html = makeOutput({ id: 'h1' });
     const visual = makeOutput({
       id: 'v1',
-      questionText: 'Different question',
       answersJson: JSON.stringify([
-        { text: 'Different answer', order: 1, isCorrect: false },
+        { text: '50 km/h', order: 3, isCorrect: true },
+        { text: '60 km/h', order: 1, isCorrect: false },
+        { text: '70 km/h', order: 2, isCorrect: false },
+      ]),
+    });
+
+    const diffs = await service.reconcile([html], [visual]);
+    const orderDiffs = diffs.filter((d) => d.fieldName.endsWith('.order'));
+    expect(orderDiffs.length).toBeGreaterThanOrEqual(1);
+    for (const diff of orderDiffs) {
+      expect(diff.severity).toBe(DiffSeverity.MINOR);
+      expect(diff.isConflict).toBe(false);
+    }
+  });
+
+  it('should detect answer count differences as REVIEW_NEEDED', async () => {
+    const html = makeOutput({ id: 'h1' });
+    const visual = makeOutput({
+      id: 'v1',
+      answersJson: JSON.stringify([
+        { text: '50 km/h', order: 1, isCorrect: true },
+        { text: '60 km/h', order: 2, isCorrect: false },
+      ]),
+    });
+
+    const diffs = await service.reconcile([html], [visual]);
+    const countDiff = diffs.find((d) => d.fieldName === 'answersCount');
+    expect(countDiff).toBeDefined();
+    expect(countDiff!.severity).toBe(DiffSeverity.REVIEW_NEEDED);
+    expect(countDiff!.isConflict).toBe(true);
+  });
+
+  it('should detect answer text differences as REVIEW_NEEDED', async () => {
+    const html = makeOutput({ id: 'h1' });
+    const visual = makeOutput({
+      id: 'v1',
+      answersJson: JSON.stringify([
+        { text: '40 km/h', order: 1, isCorrect: true },
         { text: '60 km/h', order: 2, isCorrect: false },
         { text: '70 km/h', order: 3, isCorrect: false },
       ]),
     });
 
     const diffs = await service.reconcile([html], [visual]);
-    expect(diffs.length).toBeGreaterThan(0);
-    for (const diff of diffs) {
-      expect(diff.isConflict).toBe(true);
-    }
+    const textDiff = diffs.find((d) => d.fieldName === 'answer[0].text');
+    expect(textDiff).toBeDefined();
+    expect(textDiff!.severity).toBe(DiffSeverity.REVIEW_NEEDED);
   });
 
   it('should not produce diffs for non-matching externalSourceIds', async () => {
@@ -144,5 +165,27 @@ describe('ReconcilerService', () => {
 
     await service.reconcile([html], [visual]);
     expect(mockPrisma.parserDiff.create).toHaveBeenCalled();
+  });
+
+  it('MINOR diffs have isConflict=false, HARD/REVIEW have isConflict=true', async () => {
+    const html = makeOutput({ id: 'h1' });
+    const visual = makeOutput({
+      id: 'v1',
+      questionText: 'Different question',
+      answersJson: JSON.stringify([
+        { text: '50 km/h', order: 3, isCorrect: false },
+        { text: '60 km/h', order: 2, isCorrect: false },
+        { text: '70 km/h', order: 1, isCorrect: true },
+      ]),
+    });
+
+    const diffs = await service.reconcile([html], [visual]);
+    for (const diff of diffs) {
+      if (diff.severity === DiffSeverity.MINOR) {
+        expect(diff.isConflict).toBe(false);
+      } else {
+        expect(diff.isConflict).toBe(true);
+      }
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { ConfidenceScorerService } from '../src/ingestion/confidence/confidence-scorer.service';
 import { ParsedOutput } from '../src/ingestion/parsers/html-parser.service';
-import { DiffResult } from '../src/ingestion/reconciler/reconciler.service';
+import { DiffResult, DiffSeverity } from '../src/ingestion/reconciler/reconciler.service';
 import { ValidationResult } from '../src/ingestion/validators/question-validator.service';
 
 function makeOutput(overrides: Partial<ParsedOutput> = {}): ParsedOutput {
@@ -15,6 +15,7 @@ function makeOutput(overrides: Partial<ParsedOutput> = {}): ParsedOutput {
       { text: 'Answer C', order: 3, isCorrect: false },
     ]),
     explanationText: 'This is the explanation',
+    ruleReference: 'Art. 42',
     confidenceScore: 1.0,
     ...overrides,
   };
@@ -37,6 +38,7 @@ function makeDiff(overrides: Partial<DiffResult> = {}): DiffResult {
     fieldName: 'questionText',
     valueA: 'a',
     valueB: 'b',
+    severity: DiffSeverity.REVIEW_NEEDED,
     isConflict: true,
     ...overrides,
   };
@@ -58,32 +60,68 @@ describe('ConfidenceScorerService', () => {
     expect(scored[0].confidenceScore).toBe(1.0);
   });
 
-  it('should reduce score by 0.3 when validation fails', async () => {
+  it('should penalize -0.5 for correct-answer ambiguity (isCorrect conflict)', async () => {
     const outputs = [makeOutput()];
-    const validations = [makeValidation({ isValid: false })];
-
-    const scored = await service.scoreAll(outputs, [], validations);
-    expect(scored[0].confidenceScore).toBe(0.7);
-  });
-
-  it('should reduce score by 0.15 per conflict diff', async () => {
-    const outputs = [makeOutput()];
-    const diffs = [makeDiff({ isConflict: true })];
+    const diffs = [makeDiff({ fieldName: 'answer[0].isCorrect', severity: DiffSeverity.HARD_CONFLICT })];
     const validations = [makeValidation()];
 
     const scored = await service.scoreAll(outputs, diffs, validations);
-    expect(scored[0].confidenceScore).toBe(0.85);
+    expect(scored[0].confidenceScore).toBe(0.5);
   });
 
-  it('should reduce score by 0.05 per validation warning', async () => {
-    const outputs = [makeOutput()];
-    const validations = [makeValidation({ warnings: ['warn1', 'warn2'] })];
+  it('should penalize -0.4 for invalid answer structure (unparseable JSON)', async () => {
+    const outputs = [makeOutput({ answersJson: 'not-json' })];
+    const validations = [makeValidation()];
 
     const scored = await service.scoreAll(outputs, [], validations);
-    expect(scored[0].confidenceScore).toBe(0.9);
+    // -0.4 (invalid JSON) + -0.4 (fewer than 2 answers since parse returns 0) = 0.2
+    expect(scored[0].confidenceScore).toBe(0.2);
   });
 
-  it('should reduce score by 0.05 for missing explanation', async () => {
+  it('should penalize -0.4 for no correct answer', async () => {
+    const outputs = [makeOutput({
+      answersJson: JSON.stringify([
+        { text: 'A', order: 1, isCorrect: false },
+        { text: 'B', order: 2, isCorrect: false },
+      ]),
+    })];
+    const validations = [makeValidation()];
+
+    const scored = await service.scoreAll(outputs, [], validations);
+    expect(scored[0].confidenceScore).toBe(0.6);
+  });
+
+  it('should penalize -0.4 for fewer than 2 answers', async () => {
+    const outputs = [makeOutput({
+      answersJson: JSON.stringify([
+        { text: 'A', order: 1, isCorrect: true },
+      ]),
+    })];
+    const validations = [makeValidation()];
+
+    const scored = await service.scoreAll(outputs, [], validations);
+    expect(scored[0].confidenceScore).toBe(0.6);
+  });
+
+  it('should penalize -0.3 for answer text conflict', async () => {
+    const outputs = [makeOutput()];
+    const diffs = [makeDiff({ fieldName: 'answer[0].text', severity: DiffSeverity.REVIEW_NEEDED })];
+    const validations = [makeValidation()];
+
+    const scored = await service.scoreAll(outputs, diffs, validations);
+    expect(scored[0].confidenceScore).toBe(0.7);
+  });
+
+  it('should penalize -0.2 for questionText conflict', async () => {
+    const outputs = [makeOutput()];
+    const diffs = [makeDiff({ fieldName: 'questionText', severity: DiffSeverity.REVIEW_NEEDED })];
+    const validations = [makeValidation()];
+
+    const scored = await service.scoreAll(outputs, diffs, validations);
+    expect(scored[0].confidenceScore).toBe(0.8);
+  });
+
+  it('should penalize -0.05 for missing explanation (low penalty)', async () => {
     const outputs = [makeOutput({ explanationText: undefined })];
     const validations = [makeValidation()];
 
@@ -91,64 +129,51 @@ describe('ConfidenceScorerService', () => {
     expect(scored[0].confidenceScore).toBe(0.95);
   });
 
-  it('should reduce score by 0.2 for invalid answers JSON', async () => {
-    const outputs = [makeOutput({ answersJson: 'not-json' })];
+  it('should penalize -0.05 for missing rule reference', async () => {
+    const outputs = [makeOutput({ ruleReference: undefined })];
     const validations = [makeValidation()];
 
     const scored = await service.scoreAll(outputs, [], validations);
-    // -0.2 (invalid JSON) -0.1 (< 3 answers since parse failed -> 0 answers)
-    expect(scored[0].confidenceScore).toBe(0.7);
+    expect(scored[0].confidenceScore).toBe(0.95);
   });
 
-  it('should reduce score by 0.1 for fewer than 3 answers', async () => {
-    const outputs = [
-      makeOutput({
-        answersJson: JSON.stringify([
-          { text: 'A', order: 1, isCorrect: true },
-          { text: 'B', order: 2, isCorrect: false },
-        ]),
-      }),
+  it('should not penalize for diffs in single-parser mode', async () => {
+    const outputs = [makeOutput()];
+    const diffs = [
+      makeDiff({ fieldName: 'answer[0].isCorrect', severity: DiffSeverity.HARD_CONFLICT }),
+      makeDiff({ fieldName: 'questionText', severity: DiffSeverity.REVIEW_NEEDED }),
     ];
     const validations = [makeValidation()];
 
-    const scored = await service.scoreAll(outputs, [], validations);
-    expect(scored[0].confidenceScore).toBe(0.9);
-  });
-
-  it('should reduce score by 0.1 for short question text (<20 chars)', async () => {
-    const outputs = [makeOutput({ questionText: 'Short question' })];
-    const validations = [makeValidation()];
-
-    const scored = await service.scoreAll(outputs, [], validations);
-    expect(scored[0].confidenceScore).toBe(0.9);
+    const scored = await service.scoreAll(outputs, diffs, validations, true);
+    // single-parser mode skips all diff penalties
+    expect(scored[0].confidenceScore).toBe(1.0);
   });
 
   it('should clamp score to minimum 0', async () => {
-    const outputs = [
-      makeOutput({
-        questionText: 'Short',
-        answersJson: 'bad',
-        explanationText: undefined,
-      }),
-    ];
+    const outputs = [makeOutput({
+      answersJson: 'bad',
+      explanationText: undefined,
+      ruleReference: undefined,
+    })];
     const diffs = [
-      makeDiff(), makeDiff(), makeDiff(), makeDiff(), makeDiff(),
-      makeDiff(), makeDiff(), makeDiff(),
+      makeDiff({ fieldName: 'answer[0].isCorrect' }),
+      makeDiff({ fieldName: 'answer[1].isCorrect' }),
+      makeDiff({ fieldName: 'answer[0].text' }),
+      makeDiff({ fieldName: 'questionText' }),
     ];
-    const validations = [
-      makeValidation({ isValid: false, warnings: ['w1', 'w2', 'w3', 'w4'] }),
-    ];
+    const validations = [makeValidation()];
 
     const scored = await service.scoreAll(outputs, diffs, validations);
     expect(scored[0].confidenceScore).toBeGreaterThanOrEqual(0);
     expect(scored[0].confidenceScore).toBeLessThanOrEqual(1);
   });
 
-  it('confidence < 1.0 blocks auto-publish (score reflects issues)', async () => {
-    const outputs = [makeOutput({ explanationText: undefined })];
-    const validations = [makeValidation({ warnings: ['minor issue'] })];
+  it('should clamp score to maximum 1', async () => {
+    const outputs = [makeOutput()];
+    const validations = [makeValidation()];
 
     const scored = await service.scoreAll(outputs, [], validations);
-    expect(scored[0].confidenceScore).toBeLessThan(1.0);
+    expect(scored[0].confidenceScore).toBeLessThanOrEqual(1);
   });
 });
