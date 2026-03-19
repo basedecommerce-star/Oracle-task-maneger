@@ -6,7 +6,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors();
-  app.setGlobalPrefix('api');
+  // No global prefix — nginx handles /api → backend routing.
+  // Bot and internal services access backend directly at http://api:3001/.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

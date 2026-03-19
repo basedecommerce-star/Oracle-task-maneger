@@ -28,16 +28,18 @@ export default function DashboardPage() {
 
         if (overview.status === 'fulfilled') {
           const o = overview.value as StatsOverview;
+          const examSessions = o.recentSessions.filter(s => s.sessionType === 'EXAM');
+          const trainingSessions = o.recentSessions.filter(s => s.sessionType === 'TRAINING');
           cards.push({
             label: 'Total Sessions',
-            value: String(o.totalSessions),
-            detail: `${o.exams.total} exams, ${o.trainingSessions} training`,
+            value: String(o.recentSessions.length),
+            detail: `${examSessions.length} exams, ${trainingSessions.length} training`,
             color: 'bg-blue-500',
           });
           cards.push({
             label: 'Questions Answered',
-            value: String(o.questions.totalAnswered),
-            detail: `${o.questions.correctRate}% correct rate`,
+            value: String(o.totalAnswered),
+            detail: `${o.correctRate}% correct rate`,
             color: 'bg-green-500',
           });
         }

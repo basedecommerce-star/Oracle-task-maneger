@@ -7,21 +7,24 @@ interface FetchOptions extends RequestInit {
 // --- Response types matching backend ---
 
 export interface StatsOverview {
-  totalSessions: number;
-  trainingSessions: number;
-  exams: {
-    total: number;
-    passed: number;
-    failed: number;
-    passRate: number;
-  };
-  questions: {
-    uniqueAnswered: number;
-    totalAnswered: number;
-    totalCorrect: number;
-    totalWrong: number;
-    correctRate: number;
-  };
+  totalAnswered: number;
+  totalCorrect: number;
+  totalWrong: number;
+  correctRate: number;
+  byTopic: {
+    topicId: string;
+    topicName: string;
+    answered: number;
+    correct: number;
+  }[];
+  recentSessions: {
+    sessionId: string;
+    sessionType: 'TRAINING' | 'EXAM';
+    totalQuestions: number;
+    correctAnswers: number;
+    isPassed: boolean | null;
+    createdAt: string;
+  }[];
 }
 
 export interface Category {

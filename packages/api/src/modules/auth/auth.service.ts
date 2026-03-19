@@ -58,7 +58,7 @@ export class AuthService {
   }
 
   private validateInitData(initData: string): void {
-    const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
+    const botToken = this.configService.get<string>('BOT_TOKEN');
     if (!botToken) {
       throw new UnauthorizedException('Bot token not configured');
     }

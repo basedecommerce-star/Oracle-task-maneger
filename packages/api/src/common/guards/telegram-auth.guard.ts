@@ -39,7 +39,7 @@ export class TelegramAuthGuard implements CanActivate {
   }
 
   private validateInitData(initData: string): boolean {
-    const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
+    const botToken = this.configService.get<string>('BOT_TOKEN');
     if (!botToken) return false;
 
     const params = new URLSearchParams(initData);

@@ -42,7 +42,9 @@ services:
       DATABASE_URL: postgresql://pdd_user:${POSTGRES_PASSWORD:-pdd_secret}@db:5432/pdd_moldova
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      PORT: 3001
+      BOT_TOKEN: ${BOT_TOKEN}
+      API_PORT: 3001
+      NODE_ENV: ${NODE_ENV:-production}
     depends_on:
       db:
         condition: service_healthy
@@ -78,7 +80,7 @@ services:
     ports:
       - "3002:3002"
     environment:
-      NEXT_PUBLIC_API_URL: http://api:3001
+      NEXT_PUBLIC_API_URL: /api
       PORT: 3002
 
   worker-parser-html:

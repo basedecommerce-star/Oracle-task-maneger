@@ -5,7 +5,7 @@ dotenv.config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://example.com";
-const API_URL = process.env.API_URL || "http://localhost:3001/api";
+const API_URL = process.env.API_URL || "http://localhost:3001";
 
 if (!BOT_TOKEN) {
   console.error("BOT_TOKEN is not set in environment variables");
@@ -42,25 +42,37 @@ bot.command("stats", async (ctx) => {
     );
 
     if (!response.ok) {
-      return ctx.reply("📊 Statistics unavailable. Please try again later.");
+      return ctx.reply("📊 Статистика недоступна. Попробуйте позже.");
     }
 
     const data = (await response.json()) as {
-      totalSessions: number;
-      exams: { total: number; passed: number; passRate: number };
-      questions: { totalAnswered: number; totalCorrect: number; correctRate: number };
+      totalAnswered: number;
+      totalCorrect: number;
+      totalWrong: number;
+      correctRate: number;
+      byTopic: { topicId: string; topicName: string; answered: number; correct: number }[];
+      recentSessions: { sessionId: string; sessionType: string; totalQuestions: number; correctAnswers: number; isPassed: boolean | null; createdAt: string }[];
     };
+
+    const examSessions = data.recentSessions.filter(s => s.sessionType === 'EXAM');
+    const examsPassed = examSessions.filter(s => s.isPassed === true).length;
+    const examsTotal = examSessions.length;
+    const examPassRate = examsTotal > 0 ? Math.round((examsPassed / examsTotal) * 100) : 0;
+
+    const examStats = examsTotal > 0
+      ? `Экзаменов сдано: ${examsPassed} из ${examsTotal} (${examPassRate}%)`
+      : `Экзаменов сдано: 0`;
 
     return ctx.reply(
       `📊 Статистика (ID: ${userId}):\n\n` +
-        `Пройдено тестов: ${data.exams.total}\n` +
-        `Сдано экзаменов: ${data.exams.passed} (${data.exams.passRate}%)\n` +
-        `Отвечено вопросов: ${data.questions.totalAnswered}\n` +
-        `Правильных ответов: ${data.questions.totalCorrect} (${data.questions.correctRate}%)\n\n` +
-        "Подробная статистика доступна в мини-приложении.",
+        `Отвечено вопросов: ${data.totalAnswered}\n` +
+        `Правильных ответов: ${data.totalCorrect} (${data.correctRate}%)\n` +
+        `Ошибок: ${data.totalWrong}\n\n` +
+        `${examStats}\n\n` +
+        `Подробная статистика доступна в мини-приложении.`,
     );
   } catch {
-    return ctx.reply("📊 Statistics unavailable. Please try again later.");
+    return ctx.reply("📊 Статистика недоступна. Попробуйте позже.");
   }
 });
 
