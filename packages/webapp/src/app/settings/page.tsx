@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { useAppStore } from "@/store/app.store";
 import { api } from "@/lib/api";
 import { hapticFeedback } from "@/lib/telegram";
-import type { Language, VehicleCategory, Category } from "@/types";
+import type { Language, CategoryCode, Category } from "@/types";
 
 const languages: { value: Language; label: string; flag: string }[] = [
   { value: "ro", label: "Română", flag: "🇲🇩" },
@@ -33,7 +33,7 @@ export default function SettingsPage() {
 
   const handleCategorySelect = useCallback(
     (cat: Category) => {
-      setCategory(cat.code as VehicleCategory, cat.id);
+      setCategory(cat.code as CategoryCode, cat.id);
       hapticFeedback("selection");
     },
     [setCategory],

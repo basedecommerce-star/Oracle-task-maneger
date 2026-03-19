@@ -19,20 +19,19 @@ async function main() {
   console.log(`  ✔ Country: ${moldova.nameRo} (${moldova.id})`);
 
   // --- Categories ---
+  // Based on auto-test.online Moldova actual structure:
+  //   Training categories: AB, C, D, E, F
+  //   Exam categories:     AB, BE, C, CE, D, DE, F
   console.log('Creating categories...');
   const categoryDefs = [
-    { code: 'A', nameRu: 'Категория A', nameRo: 'Categoria A', sortOrder: 1 },
-    { code: 'B', nameRu: 'Категория B', nameRo: 'Categoria B', sortOrder: 2 },
-    { code: 'AM', nameRu: 'Категория AM', nameRo: 'Categoria AM', sortOrder: 3 },
-    { code: 'A1', nameRu: 'Категория A1', nameRo: 'Categoria A1', sortOrder: 4 },
-    { code: 'A2', nameRu: 'Категория A2', nameRo: 'Categoria A2', sortOrder: 5 },
-    { code: 'B1', nameRu: 'Категория B1', nameRo: 'Categoria B1', sortOrder: 6 },
-    { code: 'BE', nameRu: 'Категория BE', nameRo: 'Categoria BE', sortOrder: 7 },
-    { code: 'C', nameRu: 'Категория C', nameRo: 'Categoria C', sortOrder: 8 },
-    { code: 'CE', nameRu: 'Категория CE', nameRo: 'Categoria CE', sortOrder: 9 },
-    { code: 'D', nameRu: 'Категория D', nameRo: 'Categoria D', sortOrder: 10 },
-    { code: 'DE', nameRu: 'Категория DE', nameRo: 'Categoria DE', sortOrder: 11 },
-    { code: 'F', nameRu: 'Категория F', nameRo: 'Categoria F', sortOrder: 12 },
+    { code: 'AB', nameRu: 'Категория A, B', nameRo: 'Categoria A, B', sortOrder: 1, availableForTraining: true, availableForExam: true },
+    { code: 'BE', nameRu: 'Категория BE', nameRo: 'Categoria BE', sortOrder: 2, availableForTraining: false, availableForExam: true },
+    { code: 'C', nameRu: 'Категория C', nameRo: 'Categoria C', sortOrder: 3, availableForTraining: true, availableForExam: true },
+    { code: 'CE', nameRu: 'Категория CE', nameRo: 'Categoria CE', sortOrder: 4, availableForTraining: false, availableForExam: true },
+    { code: 'D', nameRu: 'Категория D', nameRo: 'Categoria D', sortOrder: 5, availableForTraining: true, availableForExam: true },
+    { code: 'DE', nameRu: 'Категория DE', nameRo: 'Categoria DE', sortOrder: 6, availableForTraining: false, availableForExam: true },
+    { code: 'E', nameRu: 'Категория E', nameRo: 'Categoria E', sortOrder: 7, availableForTraining: true, availableForExam: false },
+    { code: 'F', nameRu: 'Категория F', nameRo: 'Categoria F', sortOrder: 8, availableForTraining: true, availableForExam: true },
   ];
 
   const categories: Record<string, any> = {};
@@ -45,6 +44,8 @@ async function main() {
         nameRu: cat.nameRu,
         nameRo: cat.nameRo,
         sortOrder: cat.sortOrder,
+        availableForTraining: cat.availableForTraining,
+        availableForExam: cat.availableForExam,
         countryId: moldova.id,
       },
     });
@@ -82,12 +83,7 @@ async function main() {
   };
 
   const examConfigMap: Record<string, ExamConfigParams> = {
-    A: tier1,
-    B: tier1,
-    AM: tier1,
-    A1: tier1,
-    A2: tier1,
-    B1: tier1,
+    AB: tier1,
     BE: tier2,
     C: tier2,
     D: tier2,

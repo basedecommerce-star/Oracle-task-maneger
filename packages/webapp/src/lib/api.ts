@@ -54,7 +54,10 @@ export const auth = {
 
 // ── Categories ──
 export const categories = {
-  getAll: () => request<import("../types").Category[]>("/categories"),
+  getAll: (mode?: 'training' | 'exam') => {
+    const params = mode ? `?mode=${mode}` : '';
+    return request<import("../types").Category[]>(`/categories${params}`);
+  },
 };
 
 // ── Topics ──

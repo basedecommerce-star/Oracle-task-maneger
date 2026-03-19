@@ -80,13 +80,15 @@ model Country {
 }
 
 model Category {
-  id          String   @id @default(uuid())
-  code        String   @unique // "A", "B", "AM", "A1", "A2", "B1", "BE", "C", "CE", "D", "DE", "F"
-  nameRu      String   @map("name_ru")
-  nameRo      String   @map("name_ro")
-  countryId   String   @map("country_id")
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id                    String   @id @default(uuid())
+  code                  String   @unique // "AB", "BE", "C", "CE", "D", "DE", "E", "F"
+  nameRu                String   @map("name_ru")
+  nameRo                String   @map("name_ro")
+  countryId             String   @map("country_id")
+  sortOrder             Int      @default(0) @map("sort_order")
+  availableForTraining  Boolean  @default(true) @map("available_for_training")
+  availableForExam      Boolean  @default(true) @map("available_for_exam")
+  createdAt             DateTime @default(now()) @map("created_at")
 
   country     Country       @relation(fields: [countryId], references: [id])
   examConfigs ExamConfig[]

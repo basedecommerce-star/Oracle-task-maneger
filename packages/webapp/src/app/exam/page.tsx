@@ -11,15 +11,31 @@ import { Card } from "@/components/ui/Card";
 import { useAppStore } from "@/store/app.store";
 import { api } from "@/lib/api";
 import { hapticFeedback } from "@/lib/telegram";
-import type { ExamSession, ExamResult } from "@/types";
+import type { ExamSession, ExamResult, ExamCategory } from "@/types";
+import { EXAM_CATEGORIES } from "@/types";
 
 interface ExamAnswerRecord {
   sessionQuestionId: string;
   selectedAnswerId: string;
 }
 
+const examCategoryOptions: { value: ExamCategory; label: string }[] = [
+  { value: "AB", label: "AB — Легковые / мотоциклы (24 вопр., 30 мин)" },
+  { value: "BE", label: "BE — Прицепы (B) (30 вопр., 38 мин)" },
+  { value: "C", label: "C — Грузовые (30 вопр., 38 мин)" },
+  { value: "CE", label: "CE — Прицепы (C) (36 вопр., 45 мин)" },
+  { value: "D", label: "D — Автобусы (30 вопр., 38 мин)" },
+  { value: "DE", label: "DE — Прицепы (D) (36 вопр., 45 мин)" },
+  { value: "F", label: "F — Трамваи / троллейбусы (30 вопр., 38 мин)" },
+];
+
 export default function ExamPage() {
   const { categoryCode } = useAppStore();
+  const [selectedExamCategory, setSelectedExamCategory] = useState<ExamCategory>(
+    (EXAM_CATEGORIES as readonly string[]).includes(categoryCode)
+      ? categoryCode as ExamCategory
+      : 'AB'
+  );
   const [exam, setExam] = useState<ExamSession | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<ExamAnswerRecord[]>([]);
@@ -31,7 +47,7 @@ export default function ExamPage() {
   const startExam = useCallback(async () => {
     setIsLoading(true);
     try {
-      const session = await api.exams.start(categoryCode);
+      const session = await api.exams.start(selectedExamCategory);
       setExam(session);
       setCurrentIndex(0);
       setAnswers([]);
@@ -42,7 +58,7 @@ export default function ExamPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [categoryCode]);
+  }, [selectedExamCategory]);
 
   const handleAnswer = useCallback(
     async (answerId: string) => {
@@ -110,18 +126,36 @@ export default function ExamPage() {
             <h2 className="text-xl font-bold text-tg-text mb-2">
               Пробный экзамен
             </h2>
-            <p className="text-tg-hint text-sm mb-2">
-              Категория: {categoryCode}
-            </p>
             <p className="text-tg-hint text-xs">
               Без подсказок • Время ограничено сервером
             </p>
           </Card>
 
           <Card>
+            <h3 className="font-semibold text-tg-text mb-2 text-sm">Категория экзамена:</h3>
+            <div className="space-y-2">
+              {examCategoryOptions.map((cat) => (
+                <button
+                  key={cat.value}
+                  onClick={() => setSelectedExamCategory(cat.value)}
+                  className={`
+                    w-full text-left p-3 rounded-xl transition-colors text-sm
+                    ${selectedExamCategory === cat.value
+                      ? "bg-tg-button text-tg-button-text"
+                      : "bg-tg-secondary-bg text-tg-text"
+                    }
+                  `}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
             <h3 className="font-semibold text-tg-text mb-2 text-sm">Правила экзамена:</h3>
             <ul className="text-tg-hint text-sm space-y-1.5">
-              <li>• Вопросы из билетов категории {categoryCode}</li>
+              <li>• Вопросы из билетов категории {selectedExamCategory}</li>
               <li>• Время на экзамен ограничено</li>
               <li>• Подсказки и пояснения недоступны</li>
               <li>• Результат определяет сервер</li>

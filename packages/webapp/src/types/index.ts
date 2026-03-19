@@ -1,7 +1,12 @@
-// ── Category types matching backend/seed ──
-export type VehicleCategory =
-  | 'A' | 'B' | 'AM' | 'A1' | 'A2' | 'B1'
-  | 'BE' | 'C' | 'CE' | 'D' | 'DE' | 'F';
+// ── Category types matching auto-test.online Moldova ──
+// Training categories: AB, C, D, E, F
+// Exam categories: AB, BE, C, CE, D, DE, F
+export type TrainingCategory = 'AB' | 'C' | 'D' | 'E' | 'F';
+export type ExamCategory = 'AB' | 'BE' | 'C' | 'CE' | 'D' | 'DE' | 'F';
+export type CategoryCode = TrainingCategory | ExamCategory;
+
+export const TRAINING_CATEGORIES: TrainingCategory[] = ['AB', 'C', 'D', 'E', 'F'];
+export const EXAM_CATEGORIES: ExamCategory[] = ['AB', 'BE', 'C', 'CE', 'D', 'DE', 'F'];
 
 export type Language = 'ro' | 'ru';
 
@@ -20,10 +25,12 @@ export interface User {
 
 export interface Category {
   id: string;
-  code: VehicleCategory;
+  code: CategoryCode;
   nameRu: string;
   nameRo: string;
   sortOrder: number;
+  availableForTraining: boolean;
+  availableForExam: boolean;
 }
 
 export interface ExamConfig {

@@ -5,14 +5,16 @@ import {
   BCDF_GROUP_CONFIG,
   CEDE_GROUP_CATEGORIES,
   CEDE_GROUP_CONFIG,
+  ALL_EXAM_CATEGORIES,
+  ALL_TRAINING_CATEGORIES,
   getDefaultConfigForCategory,
   ExamConfigDefaults,
 } from '../src/config/exam-config.constants';
 
 describe('ExamConfigConstants', () => {
   describe('AB group', () => {
-    it('should include categories A, B, AM, A1, A2, B1', () => {
-      expect(AB_GROUP_CATEGORIES).toEqual(['A', 'B', 'AM', 'A1', 'A2', 'B1']);
+    it('should include only AB', () => {
+      expect(AB_GROUP_CATEGORIES).toEqual(['AB']);
     });
 
     it('should have 24 questions, 1800s duration, pass=22, maxErrors=2', () => {
@@ -26,8 +28,8 @@ describe('ExamConfigConstants', () => {
   });
 
   describe('BCDF group', () => {
-    it('should include categories BE, C, CE, D, F', () => {
-      expect(BCDF_GROUP_CATEGORIES).toEqual(['BE', 'C', 'CE', 'D', 'F']);
+    it('should include categories BE, C, D, F', () => {
+      expect(BCDF_GROUP_CATEGORIES).toEqual(['BE', 'C', 'D', 'F']);
     });
 
     it('should have 30 questions, 2280s duration, pass=27, maxErrors=3', () => {
@@ -55,6 +57,30 @@ describe('ExamConfigConstants', () => {
     });
   });
 
+  describe('category lists', () => {
+    it('ALL_EXAM_CATEGORIES should be AB, BE, C, CE, D, DE, F', () => {
+      expect(ALL_EXAM_CATEGORIES).toEqual(['AB', 'BE', 'C', 'CE', 'D', 'DE', 'F']);
+    });
+
+    it('ALL_TRAINING_CATEGORIES should be AB, C, D, E, F', () => {
+      expect(ALL_TRAINING_CATEGORIES).toEqual(['AB', 'C', 'D', 'E', 'F']);
+    });
+
+    it('E is training-only, not in any exam group', () => {
+      expect(ALL_EXAM_CATEGORIES).not.toContain('E');
+      expect(ALL_TRAINING_CATEGORIES).toContain('E');
+    });
+
+    it('BE, CE, DE are exam-only, not in training', () => {
+      expect(ALL_EXAM_CATEGORIES).toContain('BE');
+      expect(ALL_EXAM_CATEGORIES).toContain('CE');
+      expect(ALL_EXAM_CATEGORIES).toContain('DE');
+      expect(ALL_TRAINING_CATEGORIES).not.toContain('BE');
+      expect(ALL_TRAINING_CATEGORIES).not.toContain('CE');
+      expect(ALL_TRAINING_CATEGORIES).not.toContain('DE');
+    });
+  });
+
   describe('math invariants', () => {
     it.each([
       ['AB', AB_GROUP_CONFIG],
@@ -71,33 +97,28 @@ describe('ExamConfigConstants', () => {
   });
 
   describe('getDefaultConfigForCategory', () => {
-    it.each(['A', 'B', 'AM', 'A1', 'A2', 'B1'])(
-      'returns AB config for category %s',
-      (cat) => {
-        expect(getDefaultConfigForCategory(cat)).toBe(AB_GROUP_CONFIG);
-      },
-    );
+    it('returns AB config for category AB', () => {
+      expect(getDefaultConfigForCategory('AB')).toBe(AB_GROUP_CONFIG);
+    });
 
-    it.each(['BE', 'D', 'F'])(
+    it.each(['BE', 'C', 'D', 'F'])(
       'returns BCDF config for category %s',
       (cat) => {
         expect(getDefaultConfigForCategory(cat)).toBe(BCDF_GROUP_CONFIG);
       },
     );
 
-    it.each(['DE'])('returns CEDE config for category %s', (cat) => {
+    it.each(['CE', 'DE'])('returns CEDE config for category %s', (cat) => {
       expect(getDefaultConfigForCategory(cat)).toBe(CEDE_GROUP_CONFIG);
-    });
-
-    it('CE is in both BCDF and CEDE — AB is checked first, then CEDE takes priority over BCDF', () => {
-      // CE is in AB_GROUP_CATEGORIES? No. CE is in CEDE first, then BCDF.
-      // The function checks AB -> CEDE -> BCDF, so CEDE wins for CE.
-      const config = getDefaultConfigForCategory('CE');
-      expect(config).toBe(CEDE_GROUP_CONFIG);
     });
 
     it('returns AB config as fallback for unknown category', () => {
       expect(getDefaultConfigForCategory('UNKNOWN')).toBe(AB_GROUP_CONFIG);
+    });
+
+    it('returns AB config as fallback for training-only category E', () => {
+      // E has no exam config, so falls back to AB
+      expect(getDefaultConfigForCategory('E')).toBe(AB_GROUP_CONFIG);
     });
   });
 });

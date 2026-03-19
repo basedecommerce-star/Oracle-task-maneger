@@ -10,26 +10,22 @@ import { Card } from "@/components/ui/Card";
 import { useAppStore } from "@/store/app.store";
 import { api } from "@/lib/api";
 import { hapticFeedback } from "@/lib/telegram";
-import type { TrainingSession, VehicleCategory } from "@/types";
+import type { TrainingSession, TrainingCategory } from "@/types";
+import { TRAINING_CATEGORIES } from "@/types";
 
-const categoryOptions: { value: VehicleCategory; label: string }[] = [
-  { value: "A", label: "A — Мотоциклы" },
-  { value: "B", label: "B — Легковые" },
+const categoryOptions: { value: TrainingCategory; label: string }[] = [
+  { value: "AB", label: "AB — Легковые / мотоциклы" },
   { value: "C", label: "C — Грузовые" },
   { value: "D", label: "D — Автобусы" },
-  { value: "BE", label: "BE — Прицепы (B)" },
-  { value: "CE", label: "CE — Прицепы (C)" },
-  { value: "DE", label: "DE — Прицепы (D)" },
-  { value: "AM", label: "AM — Мопеды" },
-  { value: "A1", label: "A1 — Лёгкие мотоциклы" },
-  { value: "A2", label: "A2 — Средние мотоциклы" },
-  { value: "B1", label: "B1 — Квадрициклы" },
+  { value: "E", label: "E — Прицепы (общий)" },
   { value: "F", label: "F — Трамваи / троллейбусы" },
 ];
 
 export default function TrainingPage() {
   const { categoryCode } = useAppStore();
-  const [selectedCategory, setSelectedCategory] = useState<VehicleCategory>(categoryCode);
+  const [selectedCategory, setSelectedCategory] = useState<TrainingCategory>(
+    (TRAINING_CATEGORIES as readonly string[]).includes(categoryCode) ? categoryCode as TrainingCategory : 'AB'
+  );
   const [session, setSession] = useState<TrainingSession | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
