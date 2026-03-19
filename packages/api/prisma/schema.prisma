@@ -1,0 +1,685 @@
+// ─────────────────────────────────────────────────────────────
+// PDD Moldova – Prisma Schema
+// Anti-hallucination-first data model
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USERS & AUTH
+// ═══════════════════════════════════════════════════════════════
+
+model User {
+  id              String    @id @default(uuid())
+  telegramId      BigInt    @unique @map("telegram_id")
+  firstName       String?   @map("first_name")
+  lastName        String?   @map("last_name")
+  username        String?
+  languageCode    String    @default("ru") @map("language_code")
+  preferredLang   String    @default("ru") @map("preferred_lang")
+  categoryId      String?   @map("category_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  category        Category?         @relation(fields: [categoryId], references: [id])
+  sessions        Session[]
+  questionStats   UserQuestionStat[]
+  reports         QuestionReport[]
+
+  @@map("users")
+}
+
+model AdminUser {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  displayName   String    @map("display_name")
+  role          AdminRole @default(MODERATOR)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  moderationEvents ModerationEvent[]
+  imports          Import[]
+
+  @@map("admin_users")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+  VIEWER
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REFERENCE DATA
+// ═══════════════════════════════════════════════════════════════
+
+model Country {
+  id        String   @id @default(uuid())
+  code      String   @unique // "MD"
+  nameRu    String   @map("name_ru")
+  nameRo    String   @map("name_ro")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  categories  Category[]
+  examConfigs ExamConfig[]
+  questions   Question[]
+  rules       Rule[]
+  signs       Sign[]
+
+  @@map("countries")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  code        String   @unique // "A", "B", "AM", "A1", "A2", "B1", "BE", "C", "CE", "D", "DE", "F"
+  nameRu      String   @map("name_ru")
+  nameRo      String   @map("name_ro")
+  countryId   String   @map("country_id")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  country     Country       @relation(fields: [countryId], references: [id])
+  examConfigs ExamConfig[]
+  questions   Question[]
+  users       User[]
+
+  @@map("categories")
+}
+
+/// Exam configuration – stored in DB, not in code.
+/// Source of truth: ASP official parameters.
+model ExamConfig {
+  id                   String    @id @default(uuid())
+  countryId            String    @map("country_id")
+  categoryId           String    @map("category_id")
+  totalQuestions        Int       @map("total_questions")
+  durationSeconds       Int       @map("duration_seconds")
+  passThresholdCorrect  Int       @map("pass_threshold_correct")
+  maxErrors             Int       @map("max_errors")
+  activeFrom            DateTime  @map("active_from")
+  activeTo              DateTime? @map("active_to")
+  sourceReference       String?   @map("source_reference")
+  sourcePriority        SourcePriority @default(A) @map("source_priority")
+  verified              Boolean   @default(false)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  country  Country  @relation(fields: [countryId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([countryId, categoryId, activeFrom])
+  @@map("exam_configs")
+}
+
+enum SourcePriority {
+  A // Official (ASP, government)
+  B // Quasi-official (auto-test.online, pdd-md.online)
+  C // Unofficial (forums, social media)
+}
+
+model Topic {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  nameRu    String   @map("name_ru")
+  nameRo    String   @map("name_ro")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  questions Question[]
+
+  @@map("topics")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SOURCE TRACKING & INGESTION PIPELINE
+// ═══════════════════════════════════════════════════════════════
+
+model SourceProvider {
+  id             String         @id @default(uuid())
+  name           String         @unique
+  url            String?
+  sourcePriority SourcePriority @map("source_priority")
+  isActive       Boolean        @default(true) @map("is_active")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  snapshots SourceSnapshot[]
+  questions Question[]
+
+  @@map("source_providers")
+}
+
+/// Raw capture of a source page/resource (Step 1 of pipeline)
+model SourceSnapshot {
+  id              String   @id @default(uuid())
+  sourceProviderId String  @map("source_provider_id")
+  sourceUrl       String   @map("source_url")
+  sourceType      String   @map("source_type") // "html", "api_json", "screenshot"
+  contentHash     String   @map("content_hash")
+  rawContent      String?  @map("raw_content") // stored as text or reference to S3
+  storageKey      String?  @map("storage_key") // S3 key for large content
+  screenshotKey   String?  @map("screenshot_key")
+  parserVersion   String   @map("parser_version")
+  capturedAt      DateTime @default(now()) @map("captured_at")
+
+  sourceProvider SourceProvider @relation(fields: [sourceProviderId], references: [id])
+  parserRuns     ParserRun[]
+  imports        Import[]
+
+  @@map("source_snapshots")
+}
+
+/// A single parser execution against a snapshot (Steps 2-3)
+model ParserRun {
+  id               String       @id @default(uuid())
+  snapshotId       String       @map("snapshot_id")
+  parserType       ParserType   @map("parser_type") // HTML, VISUAL, RECONCILER
+  parserVersion    String       @map("parser_version")
+  status           ParserStatus @default(RUNNING)
+  startedAt        DateTime     @default(now()) @map("started_at")
+  finishedAt       DateTime?    @map("finished_at")
+  errorMessage     String?      @map("error_message")
+  questionsFound   Int          @default(0) @map("questions_found")
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  snapshot      SourceSnapshot @relation(fields: [snapshotId], references: [id])
+  parserOutputs ParserOutput[]
+
+  @@map("parser_runs")
+}
+
+enum ParserType {
+  HTML
+  VISUAL
+  RECONCILER
+}
+
+enum ParserStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Individual question extracted by a parser run
+model ParserOutput {
+  id                    String  @id @default(uuid())
+  parserRunId           String  @map("parser_run_id")
+  externalSourceId      String? @map("external_source_id")
+  categoryCode          String? @map("category_code")
+  ticketNumber          Int?    @map("ticket_number")
+  topicCode             String? @map("topic_code")
+  language              String  @default("ru")
+  questionText          String  @map("question_text")
+  imageUrl              String? @map("image_url")
+  answersJson           String  @map("answers_json") // JSON array of { text, order, isCorrect }
+  explanationText       String? @map("explanation_text")
+  ruleReference         String? @map("rule_reference")
+  rawFragment           String? @map("raw_fragment") // original HTML/text chunk
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  parserRun ParserRun   @relation(fields: [parserRunId], references: [id])
+  diffs     ParserDiff[] @relation("ParserDiffOutputA")
+  diffsB    ParserDiff[] @relation("ParserDiffOutputB")
+
+  @@map("parser_outputs")
+}
+
+/// Diff between two parser outputs for the same question (Step 4)
+model ParserDiff {
+  id              String    @id @default(uuid())
+  outputAId       String    @map("output_a_id")
+  outputBId       String    @map("output_b_id")
+  fieldName       String    @map("field_name")
+  valueA          String?   @map("value_a")
+  valueB          String?   @map("value_b")
+  isConflict      Boolean   @default(false) @map("is_conflict")
+  resolvedValue   String?   @map("resolved_value")
+  resolvedBy      String?   @map("resolved_by")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  outputA ParserOutput @relation("ParserDiffOutputA", fields: [outputAId], references: [id])
+  outputB ParserOutput @relation("ParserDiffOutputB", fields: [outputBId], references: [id])
+
+  @@map("parser_diffs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EVIDENCE BUNDLES
+// ═══════════════════════════════════════════════════════════════
+
+/// Evidence bundle – full provenance trail for a question (Section 7.3)
+model EvidenceBundle {
+  id                String   @id @default(uuid())
+  sourcePageUrl     String?  @map("source_page_url")
+  screenshotKey     String?  @map("screenshot_key")
+  extractedText     String?  @map("extracted_text")
+  extractedAnswers  String?  @map("extracted_answers") // JSON
+  explanationSource String?  @map("explanation_source")
+  sourceHash        String?  @map("source_hash")
+  diffLogJson       String?  @map("diff_log_json")
+  approvalEventId   String?  @map("approval_event_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  questions Question[]
+  reports   QuestionReport[]
+
+  @@map("evidence_bundles")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// QUESTIONS & ANSWERS (production content)
+// ═══════════════════════════════════════════════════════════════
+
+model Question {
+  id                  String             @id @default(uuid())
+  externalSourceId    String?            @map("external_source_id")
+  sourceProviderId    String?            @map("source_provider_id")
+  countryId           String             @map("country_id")
+  categoryId          String?            @map("category_id")
+  topicId             String?            @map("topic_id")
+  ticketNumber        Int?               @map("ticket_number")
+  language            String             @default("ru")
+  questionType        QuestionType       @default(SINGLE) @map("question_type")
+  questionText        String             @map("question_text")
+  imageAssetKey       String?            @map("image_asset_key")
+  explanationText     String?            @map("explanation_text")
+  explanationOrigin   ExplanationOrigin? @map("explanation_origin")
+  ruleReference       String?            @map("rule_reference")
+  verificationStatus  VerificationStatus @default(RAW) @map("verification_status")
+  confidenceScore     Float?             @map("confidence_score")
+  evidenceBundleId    String?            @map("evidence_bundle_id")
+  isPublished         Boolean            @default(false) @map("is_published")
+  version             Int                @default(1)
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  sourceProvider  SourceProvider?  @relation(fields: [sourceProviderId], references: [id])
+  country         Country          @relation(fields: [countryId], references: [id])
+  category        Category?        @relation(fields: [categoryId], references: [id])
+  topic           Topic?           @relation(fields: [topicId], references: [id])
+  evidenceBundle  EvidenceBundle?  @relation(fields: [evidenceBundleId], references: [id])
+  answers         Answer[]
+  versions        QuestionVersion[]
+  translations    QuestionTranslation[]
+  sessionQuestions SessionQuestion[]
+  userStats       UserQuestionStat[]
+  reports         QuestionReport[]
+
+  @@index([countryId, categoryId, isPublished])
+  @@index([verificationStatus])
+  @@index([ticketNumber])
+  @@map("questions")
+}
+
+enum QuestionType {
+  SINGLE
+  MULTIPLE
+}
+
+enum VerificationStatus {
+  RAW
+  PARSED
+  NORMALIZED
+  CONFLICT
+  REVIEW_REQUIRED
+  VERIFIED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ExplanationOrigin {
+  SOURCE_PROVIDED
+  EDITOR_WRITTEN
+  AI_DRAFT_REVIEWED
+  IMPORTED
+}
+
+model QuestionVersion {
+  id              String   @id @default(uuid())
+  questionId      String   @map("question_id")
+  version         Int
+  snapshotJson    String   @map("snapshot_json") // full question state as JSON
+  changedBy       String?  @map("changed_by")
+  changeReason    String?  @map("change_reason")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([questionId, version])
+  @@map("question_versions")
+}
+
+model QuestionTranslation {
+  id              String   @id @default(uuid())
+  questionId      String   @map("question_id")
+  language        String   // "ru", "ro"
+  questionText    String   @map("question_text")
+  explanationText String?  @map("explanation_text")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([questionId, language])
+  @@map("question_translations")
+}
+
+model Answer {
+  id              String   @id @default(uuid())
+  questionId      String   @map("question_id")
+  answerOrder     Int      @map("answer_order")
+  answerText      String   @map("answer_text")
+  isCorrect       Boolean  @default(false) @map("is_correct")
+  confidenceScore Float?   @map("confidence_score")
+  sourceFragment  String?  @map("source_fragment")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  question       Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  versions       AnswerVersion[]
+  sessionAnswers SessionAnswer[]
+
+  @@unique([questionId, answerOrder])
+  @@map("answers")
+}
+
+model AnswerVersion {
+  id           String   @id @default(uuid())
+  answerId     String   @map("answer_id")
+  version      Int
+  snapshotJson String   @map("snapshot_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  answer Answer @relation(fields: [answerId], references: [id])
+
+  @@unique([answerId, version])
+  @@map("answer_versions")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSIONS (training & exams)
+// ═══════════════════════════════════════════════════════════════
+
+model Session {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  sessionType   SessionType @map("session_type")
+  categoryId    String?     @map("category_id")
+  topicId       String?     @map("topic_id")
+  ticketNumber  Int?        @map("ticket_number")
+  totalQuestions Int        @map("total_questions")
+  correctAnswers Int        @default(0) @map("correct_answers")
+  wrongAnswers   Int        @default(0) @map("wrong_answers")
+  status        SessionStatus @default(IN_PROGRESS)
+  isPassed      Boolean?    @map("is_passed")
+  startedAt     DateTime    @default(now()) @map("started_at")
+  finishedAt    DateTime?   @map("finished_at")
+  durationLimit Int?        @map("duration_limit") // seconds
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  user             User              @relation(fields: [userId], references: [id])
+  sessionQuestions SessionQuestion[]
+
+  @@index([userId, sessionType])
+  @@map("sessions")
+}
+
+enum SessionType {
+  TRAINING
+  EXAM
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  TIMED_OUT
+  ABANDONED
+}
+
+model SessionQuestion {
+  id           String    @id @default(uuid())
+  sessionId    String    @map("session_id")
+  questionId   String    @map("question_id")
+  questionOrder Int      @map("question_order")
+  answeredAt   DateTime? @map("answered_at")
+  isCorrect    Boolean?  @map("is_correct")
+  timeSpentMs  Int?      @map("time_spent_ms")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  session        Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question       Question        @relation(fields: [questionId], references: [id])
+  sessionAnswers SessionAnswer[]
+
+  @@unique([sessionId, questionOrder])
+  @@map("session_questions")
+}
+
+model SessionAnswer {
+  id                String   @id @default(uuid())
+  sessionQuestionId String   @map("session_question_id")
+  answerId          String   @map("answer_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  sessionQuestion SessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  answer          Answer          @relation(fields: [answerId], references: [id])
+
+  @@map("session_answers")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USER STATS
+// ═══════════════════════════════════════════════════════════════
+
+model UserQuestionStat {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  questionId   String   @map("question_id")
+  timesAnswered Int     @default(0) @map("times_answered")
+  timesCorrect  Int     @default(0) @map("times_correct")
+  timesWrong    Int     @default(0) @map("times_wrong")
+  lastAnsweredAt DateTime? @map("last_answered_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id])
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([userId, questionId])
+  @@map("user_question_stats")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RULES & SIGNS
+// ═══════════════════════════════════════════════════════════════
+
+model Rule {
+  id          String   @id @default(uuid())
+  countryId   String   @map("country_id")
+  chapterCode String   @map("chapter_code")
+  articleCode String   @map("article_code")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  country      Country           @relation(fields: [countryId], references: [id])
+  translations RuleTranslation[]
+
+  @@unique([countryId, chapterCode, articleCode])
+  @@map("rules")
+}
+
+model RuleTranslation {
+  id        String   @id @default(uuid())
+  ruleId    String   @map("rule_id")
+  language  String
+  title     String
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rule Rule @relation(fields: [ruleId], references: [id])
+
+  @@unique([ruleId, language])
+  @@map("rule_translations")
+}
+
+model Sign {
+  id          String   @id @default(uuid())
+  countryId   String   @map("country_id")
+  signCode    String   @map("sign_code")
+  signType    SignType @map("sign_type")
+  imageKey    String?  @map("image_key")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  country      Country          @relation(fields: [countryId], references: [id])
+  translations SignTranslation[]
+
+  @@unique([countryId, signCode])
+  @@map("signs")
+}
+
+enum SignType {
+  WARNING
+  PROHIBITORY
+  MANDATORY
+  INFORMATIONAL
+  PRIORITY
+  ADDITIONAL
+  TEMPORARY
+}
+
+model SignTranslation {
+  id          String   @id @default(uuid())
+  signId      String   @map("sign_id")
+  language    String
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  sign Sign @relation(fields: [signId], references: [id])
+
+  @@unique([signId, language])
+  @@map("sign_translations")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REPORTS & MODERATION
+// ═══════════════════════════════════════════════════════════════
+
+model QuestionReport {
+  id               String          @id @default(uuid())
+  questionId       String          @map("question_id")
+  userId           String          @map("user_id")
+  complaintType    ComplaintType   @map("complaint_type")
+  comment          String?
+  evidenceBundleId String?         @map("evidence_bundle_id")
+  status           ReportStatus    @default(OPEN)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  question       Question        @relation(fields: [questionId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+  evidenceBundle EvidenceBundle? @relation(fields: [evidenceBundleId], references: [id])
+
+  @@map("question_reports")
+}
+
+enum ComplaintType {
+  WRONG_ANSWER
+  WRONG_TEXT
+  WRONG_IMAGE
+  OUTDATED
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+model ModerationEvent {
+  id              String   @id @default(uuid())
+  entityType      String   @map("entity_type") // "question", "answer", "rule", etc.
+  entityId        String   @map("entity_id")
+  action          String   // "approve", "reject", "needs_fix", "publish", "archive"
+  beforeSnapshot  String?  @map("before_snapshot") // JSON
+  afterSnapshot   String?  @map("after_snapshot")  // JSON
+  moderatorId     String   @map("moderator_id")
+  comment         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  moderator AdminUser @relation(fields: [moderatorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("moderation_events")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORTS & JOBS
+// ═══════════════════════════════════════════════════════════════
+
+model Import {
+  id               String       @id @default(uuid())
+  sourceSnapshotId String?      @map("source_snapshot_id")
+  importedBy       String       @map("imported_by")
+  status           ImportStatus @default(PENDING)
+  totalItems       Int          @default(0) @map("total_items")
+  processedItems   Int          @default(0) @map("processed_items")
+  errorCount       Int          @default(0) @map("error_count")
+  logJson          String?      @map("log_json")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  sourceSnapshot SourceSnapshot? @relation(fields: [sourceSnapshotId], references: [id])
+  importedByUser AdminUser       @relation(fields: [importedBy], references: [id])
+
+  @@map("imports")
+}
+
+enum ImportStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  jobType     String    @map("job_type")
+  payload     String?   // JSON
+  status      JobStatus @default(QUEUED)
+  result      String?   // JSON
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  scheduledAt DateTime? @map("scheduled_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  errorMessage String?  @map("error_message")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([jobType, status])
+  @@map("jobs")
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
