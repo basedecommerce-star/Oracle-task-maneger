@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+
+  webapp:
+    build:
+      context: .
+      dockerfile: apps/webapp/Dockerfile
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
