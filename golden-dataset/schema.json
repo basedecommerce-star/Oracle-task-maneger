@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Golden Dataset Entry",
+  "description": "Schema for golden dataset entries used in parser regression testing.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "external_source_id",
+      "category_code",
+      "ticket_number",
+      "topic_code",
+      "language",
+      "question_text",
+      "image_url",
+      "answers",
+      "explanation_text",
+      "rule_reference",
+      "source_url",
+      "source_hash"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Unique identifier for the entry (UUID v4)."
+      },
+      "external_source_id": {
+        "type": "string",
+        "description": "Identifier from the original data source."
+      },
+      "category_code": {
+        "type": "string",
+        "enum": ["A", "B", "AM", "A1", "A2", "B1", "BE", "C", "CE", "D", "DE", "F"],
+        "description": "Driving licence category code."
+      },
+      "ticket_number": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Ticket/question number."
+      },
+      "topic_code": {
+        "type": "string",
+        "description": "Topic classification code."
+      },
+      "language": {
+        "type": "string",
+        "enum": ["ru", "ro"],
+        "description": "Language code."
+      },
+      "question_text": {
+        "type": "string",
+        "minLength": 10,
+        "description": "The full question text. Must be sourced from verified official data only."
+      },
+      "image_url": {
+        "type": ["string", "null"],
+        "format": "uri",
+        "description": "URL to an associated image, or null if none."
+      },
+      "answers": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "object",
+          "required": ["text", "order", "is_correct"],
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Answer text."
+            },
+            "order": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Display order of the answer."
+            },
+            "is_correct": {
+              "type": "boolean",
+              "description": "Whether this is the correct answer."
+            }
+          }
+        },
+        "description": "Array of possible answers (minimum 2)."
+      },
+      "explanation_text": {
+        "type": ["string", "null"],
+        "description": "Explanation of the correct answer, or null."
+      },
+      "rule_reference": {
+        "type": ["string", "null"],
+        "description": "Reference to the relevant traffic rule, or null."
+      },
+      "source_url": {
+        "type": "string",
+        "format": "uri",
+        "description": "URL of the original source page."
+      },
+      "source_hash": {
+        "type": "string",
+        "description": "Hash of the source content at time of capture (e.g. SHA-256)."
+      }
+    }
+  }
+}
