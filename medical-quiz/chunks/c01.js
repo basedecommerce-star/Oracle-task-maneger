@@ -1,0 +1,1 @@
+window.QUIZ_PARTS=window.QUIZ_PARTS||[];window.QUIZ_PARTS.push([]);
