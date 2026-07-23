@@ -1,0 +1,44 @@
+name: Temporary OutClub Network Surface Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-network-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_ISSUE: '3'
+      HOST: '46.224.206.150'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe owner-approved service ports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORTS='22 80 443 8443 2375 2376 3000 8000 9000 5432 6379 8080 8081 5000'
+          OPEN=''
+          for p in $PORTS; do
+            if timeout 3 bash -c "</dev/tcp/$HOST/$p" 2>/dev/null; then OPEN="$OPEN $p"; fi
+          done
+          [ -n "$OPEN" ] || OPEN=' none'
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="NETWORK_OPEN ports=$OPEN" >/dev/null
+          for p in 80 443 8443 3000 8000 9000 8080 8081 5000; do
+            if printf ' %s ' "$OPEN" | grep -q " $p "; then
+              SCHEME=http; [ "$p" = 443 ] || [ "$p" = 8443 ] && SCHEME=https
+              CODE=$(curl -sk -o /tmp/body -w '%{http_code}' --max-time 5 "$SCHEME://$HOST:$p/" || true)
+              TYPE=$(file -b --mime-type /tmp/body 2>/dev/null || true)
+              TITLE=$(tr '\n' ' ' < /tmp/body | sed -n 's:.*<title>\([^<]*\)</title>.*:\1:p' | head -c 80)
+              SAFE=$(printf '%s' "$TITLE" | tr -cd '[:alnum:] ._:-')
+              gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="NETWORK_HTTP port=$p code=${CODE:-none} type=${TYPE:-unknown} title=${SAFE:-none}" >/dev/null
+            fi
+          done
