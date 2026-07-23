@@ -1,0 +1,89 @@
+name: Temporary OutClub Postgres Privilege Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-postgres-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPS_ISSUE: '3'
+      HOST: '46.224.206.150'
+      PORT: '5432'
+      DBUSER: 'friday'
+      DBNAME: 'friday'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read nonce and create sealed recipient
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          NONCE=$(sed -n 's/^nonce=//p' .outclub-postgres-target)
+          [[ "$NONCE" =~ ^[0-9a-f]{32}$ ]] || exit 64
+          echo "nonce=$NONCE" >> "$GITHUB_OUTPUT"
+          python3 -m pip install --quiet pynacl
+          python3 - <<'PY'
+          from nacl.public import PrivateKey
+          sk=PrivateKey.generate()
+          open('/tmp/pg-private.hex','w').write(bytes(sk).hex())
+          open('/tmp/pg-public.hex','w').write(bytes(sk.public_key).hex())
+          PY
+          PUB=$(cat /tmp/pg-public.hex)
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="READY_PG nonce=$NONCE PUBLIC_KEY_HEX=$PUB" >/dev/null
+
+      - name: Receive password
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CIPHER=''
+          for attempt in $(seq 1 120); do
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments?per_page=100" > /tmp/pg-comments.json
+            CIPHER=$(python3 -c 'import json,sys; n=sys.argv[1]; p="CRED_PG nonce="+n+" "; a=json.load(open("/tmp/pg-comments.json")); v=[str(x.get("body",""))[len(p):] for x in a if str(x.get("body","")).startswith(p)]; print(v[-1] if v else "")' "$NONCE")
+            [ -n "$CIPHER" ] && break
+            sleep 5
+          done
+          [ -n "$CIPHER" ] || exit 75
+          CIPHER="$CIPHER" python3 - <<'PY'
+          import os,base64
+          from nacl.public import PrivateKey,SealedBox
+          sk=PrivateKey(bytes.fromhex(open('/tmp/pg-private.hex').read().strip()))
+          open('/tmp/pg-password','wb').write(SealedBox(sk).decrypt(base64.b64decode(os.environ['CIPHER'])))
+          PY
+          P=$(cat /tmp/pg-password); [ -n "$P" ]; echo "::add-mask::$P"
+          rm -f /tmp/pg-private.hex /tmp/pg-public.hex /tmp/pg-comments.json
+
+      - name: Run fixed read-only privilege inspection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          export PGPASSWORD=$(cat /tmp/pg-password)
+          echo "::add-mask::$PGPASSWORD"
+          URI="host=$HOST port=$PORT user=$DBUSER dbname=$DBNAME sslmode=disable connect_timeout=8"
+          ROW=$(psql "$URI" -Atqc "select current_user, current_database(), version(), current_setting('data_directory'), current_setting('config_file'), current_setting('server_version'), r.rolsuper, r.rolcreaterole, r.rolcreatedb, r.rolreplication, pg_has_role(current_user,'pg_execute_server_program','member') from pg_roles r where r.rolname=current_user")
+          SAFE=$(printf '%s' "$ROW" | tr '\n' ' ' | tr -cd '[:alnum:]_.,:/() =|+-' | head -c 900)
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="PG_ROLE nonce=$NONCE detail=$SAFE" >/dev/null
+          TABLES=$(psql "$URI" -Atqc "select table_schema||'.'||table_name from information_schema.tables where table_schema not in ('pg_catalog','information_schema') order by 1 limit 100")
+          while IFS= read -r t; do
+            SAFE_T=$(printf '%s' "$t" | tr -cd '[:alnum:]_.-' | head -c 120)
+            [ -n "$SAFE_T" ] && gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="PG_TABLE nonce=$NONCE name=$SAFE_T" >/dev/null
+          done <<< "$TABLES"
+          rm -f /tmp/pg-password
