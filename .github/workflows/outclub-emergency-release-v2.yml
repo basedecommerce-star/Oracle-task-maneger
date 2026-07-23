@@ -1,0 +1,164 @@
+name: Temporary OutClub Emergency Release V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-ops-target-v2'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: outclub-emergency-release-v2
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      OPS_ISSUE: '3'
+      VPS_HOST: '46.224.206.150'
+      VPS_PORT: '22'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read and validate target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE=$(sed -n 's/^mode=//p' .outclub-ops-target-v2)
+          SHA=$(sed -n 's/^sha=//p' .outclub-ops-target-v2)
+          NONCE=$(sed -n 's/^nonce=//p' .outclub-ops-target-v2)
+          case "$MODE" in staging|production) ;; *) exit 64;; esac
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 64
+          [[ "$NONCE" =~ ^[0-9a-f]{32}$ ]] || exit 64
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "nonce=$NONCE" >> "$GITHUB_OUTPUT"
+
+      - name: Create ephemeral credential envelope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.target.outputs.mode }}
+          SHA: ${{ steps.target.outputs.sha }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/outclub-private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/outclub-private.pem -pubout -out /tmp/outclub-public.pem >/dev/null 2>&1
+          PUB=$(base64 -w0 /tmp/outclub-public.pem)
+          BODY=$(printf 'READY_V2 nonce=%s mode=%s sha=%s\nPUBLIC_KEY_B64=%s' "$NONCE" "$MODE" "$SHA" "$PUB")
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="$BODY" >/dev/null
+
+      - name: Wait for encrypted one-time credential
+        id: credential
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CIPHER=''
+          for attempt in $(seq 1 180); do
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments?per_page=100" > /tmp/comments.json
+            CIPHER=$(python3 - "$NONCE" <<'PY'
+          import json,sys
+          nonce=sys.argv[1]
+          prefix=f"CRED_V2 nonce={nonce} "
+          rows=json.load(open('/tmp/comments.json'))
+          vals=[str(x.get('body',''))[len(prefix):] for x in rows if str(x.get('body','')).startswith(prefix)]
+          print(vals[-1] if vals else '')
+          PY
+            )
+            if [ -n "$CIPHER" ]; then break; fi
+            sleep 5
+          done
+          [ -n "$CIPHER" ] || { echo "credential timeout"; exit 75; }
+          printf '%s' "$CIPHER" | base64 -d > /tmp/outclub-credential.bin
+          openssl pkeyutl -decrypt \
+            -inkey /tmp/outclub-private.pem \
+            -in /tmp/outclub-credential.bin \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -out /tmp/outclub-password
+          PASSWORD=$(cat /tmp/outclub-password)
+          [ -n "$PASSWORD" ] || exit 75
+          echo "::add-mask::$PASSWORD"
+          echo "password_file=/tmp/outclub-password" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/outclub-credential.bin /tmp/outclub-private.pem /tmp/outclub-public.pem /tmp/comments.json
+
+      - name: Install and pin SSH host key
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 700 "$HOME/.ssh"
+          ssh-keyscan -p "$VPS_PORT" -t ed25519,ecdsa,rsa "$VPS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts"
+
+      - name: Verify server release agent
+        env:
+          PASSWORD_FILE: ${{ steps.credential.outputs.password_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SSHPASS="$(cat "$PASSWORD_FILE")"
+          echo "::add-mask::$SSHPASS"
+          sshpass -e ssh -p "$VPS_PORT" \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            root@"$VPS_HOST" \
+            'set -e; date -u; test -x /srv/outclub/bin/deploy.sh; echo production; cat /srv/outclub/state/production.state 2>/dev/null || true; echo staging; cat /srv/outclub/state/staging.state 2>/dev/null || true'
+
+      - name: Run guarded server release pipeline
+        env:
+          PASSWORD_FILE: ${{ steps.credential.outputs.password_file }}
+          MODE: ${{ steps.target.outputs.mode }}
+          SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SSHPASS="$(cat "$PASSWORD_FILE")"
+          echo "::add-mask::$SSHPASS"
+          sshpass -e ssh -p "$VPS_PORT" \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=12 \
+            root@"$VPS_HOST" \
+            "sudo -u deploy /srv/outclub/bin/deploy.sh '$MODE' '$SHA'"
+
+      - name: Verify exact served SHA externally
+        env:
+          MODE: ${{ steps.target.outputs.mode }}
+          SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$MODE" = staging ] && BASE='https://46.224.206.150.sslip.io:8443' || BASE='https://46.224.206.150.sslip.io'
+          curl -fsS --max-time 20 "$BASE/api/health" >/dev/null
+          curl -fsS --max-time 20 "$BASE/api/health/ready" >/dev/null
+          GOT=$(curl -fsS --max-time 20 "$BASE/api/version" | python3 -c 'import json,sys;print(json.load(sys.stdin)["commit"])')
+          [ "$GOT" = "$SHA" ] || { echo "served=$GOT expected=$SHA"; exit 1; }
+          [ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")" = 200 ]
+          echo "verified mode=$MODE sha=$SHA"
+
+      - name: Publish result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.target.outputs.mode }}
+          SHA: ${{ steps.target.outputs.sha }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+          RESULT: ${{ job.status }}
+        shell: bash
+        run: |
+          BODY=$(printf 'RESULT_V2 nonce=%s mode=%s sha=%s status=%s run=%s' "$NONCE" "$MODE" "$SHA" "$RESULT" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="$BODY" >/dev/null
+          rm -f /tmp/outclub-password
