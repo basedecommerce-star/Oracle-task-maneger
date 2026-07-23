@@ -1,0 +1,56 @@
+name: Temporary OutClub Service Introspection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-service-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_ISSUE: '3'
+      HOST: '46.224.206.150'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect only public service metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in /openapi.json /docs /redoc /health /api/health /api/v1/health; do
+            CODE=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 8 "http://$HOST:8000$path" || true)
+            TYPE=$(file -b --mime-type /tmp/body 2>/dev/null || true)
+            SIZE=$(wc -c < /tmp/body 2>/dev/null || echo 0)
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="SERVICE8000 path=$path code=${CODE:-none} type=${TYPE:-unknown} bytes=$SIZE" >/dev/null
+            if [ "$path" = /openapi.json ] && [ "$CODE" = 200 ]; then
+              python3 - <<'PY' > /tmp/paths
+          import json
+          try:
+              d=json.load(open('/tmp/body'))
+              for p,methods in sorted(d.get('paths',{}).items()):
+                  ms=','.join(sorted(k.upper() for k in methods if k.lower() in {'get','post','put','patch','delete'}))
+                  print(f'{ms} {p}')
+          except Exception:
+              pass
+          PY
+              while IFS= read -r line; do
+                SAFE=$(printf '%s' "$line" | tr -cd '[:alnum:]_ /{}.,:-' | head -c 300)
+                [ -n "$SAFE" ] && gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="SERVICE8000_ROUTE $SAFE" >/dev/null
+              done < /tmp/paths
+            fi
+          done
+          for scheme in http https; do
+            curl -skI --max-time 8 "$scheme://$HOST:8081/" > /tmp/headers || true
+            CODE=$(awk 'NR==1{print $2}' /tmp/headers)
+            LOC=$(sed -n 's/^[Ll]ocation: *//p' /tmp/headers | tr -d '\r' | head -c 200 | tr -cd '[:alnum:]_/:.?&=-')
+            SERVER=$(sed -n 's/^[Ss]erver: *//p' /tmp/headers | tr -d '\r' | head -c 100 | tr -cd '[:alnum:]_. /-')
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="SERVICE8081 scheme=$scheme code=${CODE:-none} server=${SERVER:-none} location=${LOC:-none}" >/dev/null
+          done
