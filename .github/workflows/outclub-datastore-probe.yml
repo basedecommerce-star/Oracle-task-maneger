@@ -1,0 +1,55 @@
+name: Temporary OutClub Datastore Security Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-datastore-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_ISSUE: '3'
+      HOST: '46.224.206.150'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only datastore authentication probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq redis-tools postgresql-client
+          set +e
+          RPING=$(timeout 6 redis-cli -h "$HOST" -p 6379 --no-auth-warning PING 2>&1)
+          RRC=$?
+          set -e
+          if [ "$RRC" -eq 0 ] && [ "$RPING" = PONG ]; then
+            WHO=$(timeout 6 redis-cli -h "$HOST" -p 6379 --no-auth-warning ACL WHOAMI 2>/dev/null | tr -cd '[:alnum:]_.-')
+            VER=$(timeout 6 redis-cli -h "$HOST" -p 6379 --no-auth-warning INFO server 2>/dev/null | sed -n 's/^redis_version://p' | tr -d '\r' | tr -cd '[:alnum:].-')
+            MODE=$(timeout 6 redis-cli -h "$HOST" -p 6379 --no-auth-warning INFO replication 2>/dev/null | sed -n 's/^role://p' | tr -d '\r' | tr -cd '[:alnum:]_-')
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="REDIS_AUTH unauthenticated=yes user=${WHO:-unknown} version=${VER:-unknown} role=${MODE:-unknown}" >/dev/null
+          else
+            REASON=$(printf '%s' "$RPING" | grep -qi NOAUTH && echo auth_required || echo unavailable_or_protocol_error)
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="REDIS_AUTH unauthenticated=no reason=$REASON rc=$RRC" >/dev/null
+          fi
+          for user in postgres friday outclub; do
+            set +e
+            OUT=$(PGCONNECT_TIMEOUT=5 psql "host=$HOST port=5432 user=$user dbname=postgres sslmode=disable" -w -Atqc 'select current_user' 2>&1)
+            RC=$?
+            set -e
+            if [ "$RC" -eq 0 ]; then RES=trust_auth; else
+              if printf '%s' "$OUT" | grep -qi 'no password supplied'; then RES=password_required;
+              elif printf '%s' "$OUT" | grep -qi 'password authentication failed'; then RES=password_rejected;
+              elif printf '%s' "$OUT" | grep -qi 'no pg_hba.conf entry'; then RES=pg_hba_denied;
+              else RES=unavailable_or_other; fi
+            fi
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="POSTGRES_AUTH user=$user result=$RES rc=$RC" >/dev/null
+          done
