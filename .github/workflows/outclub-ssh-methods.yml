@@ -1,0 +1,43 @@
+name: Temporary OutClub SSH Method Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-ssh-methods-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_ISSUE: '3'
+      VPS_HOST: '46.224.206.150'
+      VPS_PORT: '22'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe advertised SSH auth methods
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          ssh-keyscan -p "$VPS_PORT" -t ed25519,ecdsa,rsa "$VPS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          for user in root deploy ubuntu friday; do
+            set +e
+            OUT=$(ssh -vv -p "$VPS_PORT" \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes -o ConnectTimeout=10 -o NumberOfPasswordPrompts=0 \
+              "$user@$VPS_HOST" true 2>&1)
+            RC=$?
+            set -e
+            METHODS=$(printf '%s\n' "$OUT" | sed -n 's/.*Authentications that can continue: //p' | tail -n1 | tr -cd '[:alnum:],_-')
+            [ -n "$METHODS" ] || METHODS=unknown
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" \
+              -f body="SSH_METHODS user=$user methods=$METHODS rc=$RC" >/dev/null
+          done
