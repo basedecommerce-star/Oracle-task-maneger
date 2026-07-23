@@ -1,0 +1,128 @@
+name: Temporary OutClub SSH Auth Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.outclub-auth-target'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPS_ISSUE: '3'
+      VPS_HOST: '46.224.206.150'
+      VPS_PORT: '22'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read nonce
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          NONCE=$(sed -n 's/^nonce=//p' .outclub-auth-target)
+          [[ "$NONCE" =~ ^[0-9a-f]{32}$ ]] || exit 64
+          echo "nonce=$NONCE" >> "$GITHUB_OUTPUT"
+
+      - name: Generate sealed-box recipient
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pynacl
+          umask 077
+          python3 - <<'PY'
+          from nacl.public import PrivateKey
+          sk=PrivateKey.generate()
+          open('/tmp/diag-private.hex','w').write(bytes(sk).hex())
+          open('/tmp/diag-public.hex','w').write(bytes(sk.public_key).hex())
+          PY
+          PUB=$(cat /tmp/diag-public.hex)
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" \
+            -f body="READY_DIAG nonce=$NONCE PUBLIC_KEY_HEX=$PUB" >/dev/null
+
+      - name: Receive diagnostic credential bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CIPHER=''
+          for attempt in $(seq 1 120); do
+            gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments?per_page=100" > /tmp/diag-comments.json
+            CIPHER=$(python3 -c 'import json,sys; n=sys.argv[1]; p="CRED_DIAG nonce="+n+" "; a=json.load(open("/tmp/diag-comments.json")); v=[str(x.get("body",""))[len(p):] for x in a if str(x.get("body","")).startswith(p)]; print(v[-1] if v else "")' "$NONCE")
+            [ -n "$CIPHER" ] && break
+            sleep 5
+          done
+          [ -n "$CIPHER" ] || exit 75
+          CIPHER="$CIPHER" python3 - <<'PY'
+          import os,base64
+          from nacl.public import PrivateKey,SealedBox
+          sk=PrivateKey(bytes.fromhex(open('/tmp/diag-private.hex').read().strip()))
+          pt=SealedBox(sk).decrypt(base64.b64decode(os.environ['CIPHER']))
+          open('/tmp/diag-bundle.json','wb').write(pt)
+          PY
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/diag-bundle.json'))
+          assert isinstance(d.get('passwords'),list) and 1 <= len(d['passwords']) <= 4
+          for i,p in enumerate(d['passwords']):
+              assert isinstance(p,str) and 1 <= len(p) <= 256
+              open(f'/tmp/diag-pass-{i}','w').write(p)
+          open('/tmp/diag-count','w').write(str(len(d['passwords'])))
+          PY
+          while IFS= read -r f; do P=$(cat "$f"); echo "::add-mask::$P"; done < <(find /tmp -maxdepth 1 -name 'diag-pass-*' -type f)
+          rm -f /tmp/diag-private.hex /tmp/diag-public.hex /tmp/diag-comments.json /tmp/diag-bundle.json
+
+      - name: Probe fixed SSH accounts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NONCE: ${{ steps.target.outputs.nonce }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 700 "$HOME/.ssh"
+          ssh-keyscan -p "$VPS_PORT" -t ed25519,ecdsa,rsa "$VPS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          chmod 600 "$HOME/.ssh/known_hosts"
+          COUNT=$(cat /tmp/diag-count)
+          RESULT=''
+          for user in root deploy ubuntu friday; do
+            for i in $(seq 0 $((COUNT-1))); do
+              export SSHPASS=$(cat "/tmp/diag-pass-$i")
+              set +e
+              OUT=$(sshpass -e ssh -p "$VPS_PORT" \
+                -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o StrictHostKeyChecking=yes \
+                -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no \
+                -o ConnectTimeout=10 -o NumberOfPasswordPrompts=1 \
+                "$user@$VPS_HOST" 'printf AUTH_OK; id -u; test -x /srv/outclub/bin/deploy.sh && printf DEPLOY_AGENT_OK || true' 2>&1)
+              RC=$?
+              set -e
+              if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q AUTH_OK; then
+                SAFE=$(printf '%s' "$OUT" | tr '\n' ' ' | tr -cd '[:alnum:]_ =:-' | head -c 240)
+                RESULT="AUTH_OK user=$user password_index=$i detail=$SAFE"
+                break 2
+              fi
+              if printf '%s' "$OUT" | grep -qi 'Permission denied'; then reason='permission_denied';
+              elif printf '%s' "$OUT" | grep -qi 'Connection timed out'; then reason='timeout';
+              elif printf '%s' "$OUT" | grep -qi 'Connection refused'; then reason='refused';
+              elif printf '%s' "$OUT" | grep -qi 'Host key verification failed'; then reason='host_key';
+              else reason="ssh_rc_$RC"; fi
+              gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" \
+                -f body="TRACE_DIAG nonce=$NONCE user=$user password_index=$i result=$reason" >/dev/null
+            done
+          done
+          [ -n "$RESULT" ] || RESULT='AUTH_NONE'
+          gh api "repos/${{ github.repository }}/issues/$OPS_ISSUE/comments" \
+            -f body="RESULT_DIAG nonce=$NONCE $RESULT" >/dev/null
+          rm -f /tmp/diag-pass-* /tmp/diag-count
